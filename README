@@ -1,0 +1,272 @@
+----------------------------------
+* Linux ISG :: lISG-0.11.4-alpha *
+----------------------------------
+
+This is the first public release. Nevertheless "Linux ISG" is working
+for half a year under a heavy load (> 250K pps, > 5K sessions, all
+sessions are bandwidth policed) without any stability or performance
+issues. Also there are no (or little) complains regarding policing
+precision (minimum policing rate was 200 Kbit/s).
+
+----------------
+* Installation *
+----------------
+0) Unpack distribution
+1) cd kernel
+2) Run ./configure
+
+    *** NOTE! *** Version shown in `iptables -V' must be equal to version
+    of your iptables sources.
+
+3) Run make && make install
+4) Run depmod -a && modprobe ipt_ISG
+5) cd ..
+6) Check that you have installed this Perl modules:
+    Net::Radius::Packet
+    Net::Radius::Dictionary
+    Net::IPAddress
+
+    *** NOTE! *** IPTables::libiptc and Time::HiRes are not needed now!
+
+7) Copy the contents of ISG directory to your system, f.e. /usr/local/ISG
+8) Change __INSTALL_DIR__/etc/config.pl to suit your needs
+9) Fire up daemon ISGd.pl: __INSTALL_DIR__/bin/ISGd.pl
+10) Use __INSTALL_DIR__/bin/ISG.pl to manage your sessions (try --help)
+
+---------
+* Usage *
+---------
+First of all you need to decide, which traffic will be managed by lISG. It
+may be one subnet or multiple subnets, no matter. Imagine, that you
+want to policy traffic for networks 10.254.0.0/16 and 192.168.99.0/24,
+then you must do:
+
+# iptables -A FORWARD -s 10.254.0.0/16 -j ISG --session-init
+# iptables -A FORWARD -d 10.254.0.0/16 -j ISG
+# iptables -A FORWARD -s 192.168.99.0/24 -j ISG --session-init
+# iptables -A FORWARD -d 192.168.99.0/24 -j ISG
+
+Rules labeled with "--session-init" parameter is so called
+"initialization" rules. When packet hits this rule, ipt_ISG kernel module
+tries to detect if this packet is belongs to "approved" session. If
+not, ipt_ISG drop packet and send NETLINK message to ISGd.pl. Daemon
+contacts RADIUS server to authorize this packet using its src IP address
+as User-Name attribute. If RADIUS accepting this request, session turn
+its state to "approved", daemon applies bandwidth policy to the session
+and starts accounting. Otherwise session remains in "unapproved" state
+for approve_retry_interval time (see ipt_ISG module parameters).
+
+Remember that rules with "--session-init" parameter is using for session
+initialization and router's inbound (FROM user) traffic policing and
+accouting. Rules without this parameter is using just for outbound (TO
+user) traffic policing and accounting (but only if session for this dst
+IP is "approved", otherwise packets will be dropped).
+
+You can also do something like this:
+
+# iptables -I FORWARD -s 192.168.99.0/24 -d 213.180.204.0/24 -j ISG --session-init
+# iptables -I FORWARD -d 192.168.99.0/24 -s 213.180.204.0/24 -j ISG
+
+Here we're policing and accounting traffic just with one of Yandex
+subnets :) and not touching any other traffic.
+
+You can use ISG.pl program to manage your sessions. Try 'ISG.pl help'
+for parameters.
+
+--------------------
+* Services support *
+--------------------
+Each session can have services applied to it. Let's take an example.
+User 10.11.22.33 must have access to:
+    1) Private subnets at speed of 50 Mbit/s
+    2) Some specific server (10.55.11.16) with no speed limit
+    3) All other addresses not going into 1 and 2 (Internet actually)
+       at speed 1 Mbit/s
+
+Firstly we must define classes in etc/tc.conf file:
+
+    FIRST	192.168.0.0/16
+    FIRST	172.16.0.0/12
+    CLASS_A	10.0.0.0/8
+
+    SECOND	10.55.11.16/32
+
+    THRID	0.0.0.0/0
+
+10.0.0.0/8 prefix must named "FIRST" too. "CLASS_A" is just for
+demonstation that we can apply more than one class per service. Ah,
+you also may use lower case letters, I don't know why I'm using caps. :)
+
+Next define three service descriptions (see etc/config.pl for more
+parameters and some comments):
+
+    $cfg{srv}{"PRIVATE"}{download_rate}      = "50000000;75000000";
+    $cfg{srv}{"PRIVATE"}{upload_rate}        = "50000000;75000000";
+    $cfg{srv}{"PRIVATE"}{traffic_classes}    = [ "CLASS_A", "FIRST" ];
+
+    $cfg{srv}{"SSERVER"}{download_rate}      = "0;0";
+    $cfg{srv}{"SSERVER"}{upload_rate}        = "0;0";
+    $cfg{srv}{"SSERVER"}{traffic_classes}    = [ "SECOND" ];
+
+    $cfg{srv}{"INET-1MBIT"}{download_rate}   = "1000000;1500000";
+    $cfg{srv}{"INET-1MBIT"}{upload_rate}     = "1000000;1500000";
+    $cfg{srv}{"INET-1MBIT"}{traffic_classes} = [ "THIRD" ];
+
+User 10.11.22.33 profile at RADIUS server must contain attributes:
+
+    Cisco-Account-Info  = APRIVATE
+    Cisco-Account-Info += ASSERVER
+    Cisco-Account-Info += AINET-1MBIT
+
+Note that if you exclude last attribute (1 Mbit Inet service) then user
+10.11.22.33 will not have Internet access. If you exclude PRIVATE and
+SSERVER services, user will not have access to local resources but ONLY
+access to 1 Mbit Internet (INET-1MBIT). User will NOT have access to
+ALL resources at speed of 1 Mbit/s, only 1 Mbit to Internet. This is very
+important. Also see last comment in etc/tc.conf.example about 0.0.0.0/0
+meaning.
+
+You can also define additional service, INET-5MBIT for example:
+
+    $cfg{srv}{"INET-5MBIT"}{download_rate}   = "5000000;7500000";
+    $cfg{srv}{"INET-5MBIT"}{upload_rate}     = "5000000;7500000";
+    $cfg{srv}{"INET-5MBIT"}{traffic_classes} = [ "THIRD" ];
+
+and add it to profile:
+
+    Cisco-Account-Info  = APRIVATE
+    Cisco-Account-Info += ASSERVER
+    Cisco-Account-Info += AINET-1MBIT
+    Cisco-Account-Info += NINET-5MBIT
+
+Please note "N" letter before service name. This means that service will
+not be active by default and can be manually activated when needed using
+CoA (CoA interface for services is not impemented in 0.11).
+
+----------------------------------
+* Traffic classification support *
+----------------------------------
+Use etc/tc.conf file for subnet declarations. See tc.conf.example for
+reference. tc.conf file is re-reading automatically, see tc_check_interval
+in etc/config.pl.
+
+You can change ipt_ISG kernel module parameter "nehash_key_len". It is 20
+by default. This parameter defines hash key length. Let's consider that
+this parameter is set to 16 (for simplicity) and we're adding this prefixes:
+
+    10.5.5.0/24
+    10.5.6.0/24
+    192.168.0.0/16
+
+First of all a hash with 2^16 = 65535 buckets will be created. Then:
+
+    10.5.5.0/24		go to bucket 10.5.0.0	(10.5.5.0 & 255.255.0.0)
+    10.5.99.0/24	go to bucket 10.5.0.0
+    192.168.0.0/16	go to bucket 192.168.0.0
+
+So there are already 2 elements in 10.5.0.0 bucket. For best performance
+we must try to minimize number of elements in each bucket. So we can
+increase nehash_key_len, but this leads to more memory usage (f.e. when
+nehash_key_len=24 and adding some prefix with /8 mask we must create
+65535 duplicates of this /8 prefix to fill the hash).
+
+nehash_key_len=20 (by default) is the best trade-off between memory usage
+and performance for rather sparse prefix lists.
+
+The idea of hash is derived from Robert Olsson's fib_hash2.
+
+--------------------------------------------------
+* Supported Attributes for Access-Accept packets *
+--------------------------------------------------
+
+Attribute:	Acct-Interim-Interval
+Description:	Standard attribute (as per RFC)
+Example:	Acct-Interim-Interval = 180
+
+Attribute:	Session-Timeout
+Description:	Standard attribute (as per RFC)
+Example:	Session-Timeout = 86400
+
+Attribute:	Idle-Timeout
+Description:	Standard attribute (as per RFC)
+Example:	Session-Timeout = 1800
+
+Attribute:	Class = "<in_rate>/<out_rate>"
+Description:	Traffic rate policing for session. in_rate and out_rate is integer
+		given in Kbit/s. This attribute has no effect if there is at least
+		one service applied for session.
+Example:	Class = "5000/2500" (5 Mbit/s for download, 2.5 for upload)
+
+Attribute:	Framed-IP-Address = <IP-address>
+Description:	See 1-to-1 NAT trick below
+Example:	Framed-IP-Address = 62.117.85.254
+
+Attribute:	Cisco-Account-Info = A<service name>
+Description:	Service name for session (as defined in config.pl). Service will
+		be applied for session with on status. Attribute can have multiple
+		values, so one session can have as many services as you want.
+		Please note, that you can't apply two or more "on" services with
+		overlapping classes. There is no such restriction for "N"-version
+		of this attribute (see below).
+Example:	Cisco-Account-Info = AINTERNET
+		Cisco-Account-Info = ALOCAL
+
+Attribute:	Cisco-Account-Info = N<service name>
+Description:	The same as A<service name> but service will be created with off
+		status, so the traffic that falls into this service classes will
+		be dropped. Service can be enabled later using CoA interface (but
+		CoA interface for services is not impemented in 0.11).
+Example:	Cisco-Account-Info = NLOCAL
+
+-----------------------
+* CoA and PoD support *
+----------------------- 
+lISG is supporting CoA and PoD RADIUS messages processing. First of all
+you must set CoA-related settings in config.pl. You can use any of this
+attributes to identify session:
+
+    * User-Name (actually an IP-address of user)
+    * Acct-Session-Id
+    * NAS-Port
+
+In "Change of Authorization" messages you can currently change only
+this attributes of session:
+
+    * Class (the attribute is using in lISG for rate policing)
+
+-------------------
+* Tips and Tricks *
+-------------------
+To enable reliable communications between userspace and kernel, do:
+
+    echo "1048576" > /proc/sys/net/core/rmem_max
+
+Otherwise there will be some problems printing long session lists.
+
+* * * * *
+
+You can enable static 1-to-1 NAT for selected sessions by uncommenting
+
+    $cfg{static_nat} = 1;
+
+in config.pl and passing Framed-IP-Address attribute in Access-Accept,
+but first you need to reference tree-like structures automatically
+created using IPTables::SubnetSkeleton, f.e.:
+
+    iptables -t nat -I PREROUTING  -j stat_nat_dst_skeleton
+    iptables -t nat -I POSTROUTING -j stat_nat_src_skeleton
+
+Also, blackhole route for Framed-IP-Address is automagically created
+in such scheme for easy route redistribution using Quagga:
+
+router bgp 65505
+    redistribute kernel
+
+Note that Quagga needs this patch
+    http://www.gossamer-threads.com/lists/quagga/dev/20413
+for proper handling of kernel blackhole routes.
+
+--------------
+* Questions? *
+--------------
+E-mail me: sysoleg@yandex.ru
