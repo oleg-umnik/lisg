@@ -17,6 +17,7 @@ MODULE_DESCRIPTION("Xtables: Linux ISG Access Control");
 static inline struct isg_session *isg_find_session(struct isg_in_event *);
 static int isg_start_session(struct isg_session *);
 static void isg_send_sessions_list(pid_t, struct isg_in_event *);
+static int isg_free_session(struct isg_session *);
 static int isg_clear_session(struct isg_in_event *);
 static int isg_update_session(struct isg_in_event *);
 static void isg_send_session_count(pid_t);
@@ -84,7 +85,14 @@ static void nl_receive_main(struct sk_buff *skb) {
 
 	case EVENT_SESS_APPROVE:
 	case EVENT_SESS_CHANGE:
-	    isg_update_session(ev);
+	    if (isg_update_session(ev)) {
+		type = EVENT_KERNEL_NACK;
+	    } else {
+		type = EVENT_KERNEL_ACK;
+	    }
+	    if (ev->type == EVENT_SESS_CHANGE) {
+		isg_send_event_type(from_pid, type);
+	    }
 	    break;
 
 	case EVENT_SERV_APPLY:
@@ -100,7 +108,12 @@ static void nl_receive_main(struct sk_buff *skb) {
 	    break;
 
 	case EVENT_SESS_CLEAR:
-	    isg_clear_session(ev);
+	    if (isg_clear_session(ev)) {
+		type = EVENT_KERNEL_NACK;
+	    } else {
+		type = EVENT_KERNEL_ACK;
+	    }
+	    isg_send_event_type(from_pid, type);
 	    break;
 
 	case EVENT_NE_SWEEP_QUEUE:
@@ -309,7 +322,7 @@ static int isg_add_service_desc(u_int8_t *service_name, u_int8_t *tc_name) {
 
     tc = nehash_find_class(tc_name);
     if (!tc) {
-        printk(KERN_ERR "ipt_ISG: Unknown traffic class = '%s' for service name '%s'\n", tc_name, service_name);
+        printk(KERN_ERR "ipt_ISG: Unknown traffic class '%s' for service name '%s'\n", tc_name, service_name);
         goto err;
     }
 
@@ -354,7 +367,7 @@ static int isg_apply_service(struct isg_in_event *ev) {
 
     sdesc = find_service_desc(ev->si.service_name);
     if (!sdesc) {
-	printk(KERN_ERR "ipt_ISG: Unknown service name = '%s'\n", ev->si.service_name);
+	printk(KERN_ERR "ipt_ISG: Unknown service name '%s'\n", ev->si.service_name);
 	goto err;
     }
 
@@ -366,17 +379,18 @@ static int isg_apply_service(struct isg_in_event *ev) {
 	    goto err;
 	}
 
-	nis->parent_is = is;
 	nis->sdesc = sdesc;
+	nis->parent_is = is;
 	nis->info = is->info;
+	get_random_bytes(&(nis->info.id), sizeof(nis->info.id));
 
-	ev->si.sinfo.id = nis->info.id;
-	ev->si.sinfo.flags |= ISG_IS_SERVICE;
+	hlist_add_head(&nis->srv_node, &is->srv_head);
 
 	setup_timer(&nis->timer, isg_session_timeout, (unsigned long)nis);
 	mod_timer(&nis->timer, jiffies + session_check_interval * HZ);
 
-	hlist_add_head(&nis->srv_node, &is->srv_head);
+	ev->si.sinfo.id = nis->info.id;
+	ev->si.sinfo.flags |= ISG_IS_SERVICE;
 
 	spin_unlock_bh(&isg_lock);
 
@@ -433,8 +447,8 @@ static int isg_start_session(struct isg_session *is) {
     struct timespec ts_now = ktime_to_timespec(ktime_get());
 
     is->stat.in_packets  = 0;
-    is->stat.in_bytes    = 0;
     is->stat.out_packets = 0;
+    is->stat.in_bytes    = 0;
     is->stat.out_bytes   = 0;
     is->stat.duration    = 0;
 
@@ -442,7 +456,9 @@ static int isg_start_session(struct isg_session *is) {
     is->start_ktime = is->last_export = ts_now.tv_sec;
 
     if (is->info.flags & ISG_IS_SERVICE) {
-	get_random_bytes(&(is->info.id), sizeof(is->info.id));
+	if (!is->info.id) {
+	    get_random_bytes(&(is->info.id), sizeof(is->info.id));
+	}
 	is->info.flags |= ISG_SERVICE_ONLINE;
     }
 
@@ -461,6 +477,12 @@ static int isg_update_session(struct isg_in_event *ev) {
     is = isg_find_session(ev);
 
     if (is) {
+	is->info.in_rate = ev->si.sinfo.in_rate;
+	is->info.in_burst = ev->si.sinfo.in_burst;
+
+	is->info.out_rate = ev->si.sinfo.out_rate;
+	is->info.out_burst = ev->si.sinfo.out_burst;
+
 	if (ev->si.sinfo.nat_ipaddr) {
 	    is->info.nat_ipaddr = ev->si.sinfo.nat_ipaddr;
 	}
@@ -478,25 +500,35 @@ static int isg_update_session(struct isg_in_event *ev) {
 	}
 
 	if (ev->si.sinfo.flags) {
-	    is->info.flags = ev->si.sinfo.flags;
+	    u_int16_t flags = ev->si.sinfo.flags & FLAGS_RW_MASK;
+
+	    if (!ev->si.flags_op) {
+		is->info.flags = flags;
+	    } else if (ev->si.flags_op == FLAG_OP_SET) {
+		is->info.flags |= flags;
+	    } else if (ev->si.flags_op == FLAG_OP_UNSET) {
+		is->info.flags &= ~flags;
+	    }
+
+	    if (IS_SERVICE_ONLINE(is) && !(is->info.flags & ISG_SERVICE_STATUS_ON)) {
+		isg_free_session(is);
+	    }
 	}
 
-	is->info.in_rate = ev->si.sinfo.in_rate;
-	is->info.in_burst = ev->si.sinfo.in_burst;
-
-	is->info.out_rate = ev->si.sinfo.out_rate;
-	is->info.out_burst = ev->si.sinfo.out_burst;
-
-	if (ev->type == EVENT_SESS_APPROVE) {
+	if (ev->type == EVENT_SERV_APPLY) {
+	    is->info.flags |= ISG_IS_SERVICE;
+	} else if (ev->type == EVENT_SESS_APPROVE) {
 	    is->info.flags |= ISG_IS_APPROVED;
 	    isg_start_session(is);
 	    unapproved_sess_cnt--;
 	}
+
+	spin_unlock_bh(&isg_lock);
+	return 0;
     }
 
     spin_unlock_bh(&isg_lock);
-
-    return 0;
+    return 1;
 }
 
 static void _isg_free_session(struct isg_session *is) {
@@ -510,7 +542,7 @@ static void _isg_free_session(struct isg_session *is) {
 }
 
 static int isg_free_session(struct isg_session *is) {
-    if (!(is->info.flags & ISG_IS_SERVICE)) {
+    if (!IS_SERVICE(is)) {
 	if (is->info.port_number) {
 	    clear_bit(is->info.port_number, port_bitmap);
 	}
@@ -535,11 +567,12 @@ static int isg_free_session(struct isg_session *is) {
 
     isg_send_event(EVENT_SESS_STOP, is, 0, NLMSG_DONE, 0);
 
-    if (!(is->info.flags & ISG_IS_SERVICE)) {
+    if (!IS_SERVICE(is)) {
 	hlist_del(&is->list);
 	_isg_free_session(is);
 	current_sess_cnt--;
     } else {
+	is->info.id = 0;
 	is->info.flags &= ~ISG_SERVICE_ONLINE;
     }
 
@@ -720,8 +753,8 @@ static void isg_session_timeout(unsigned long arg) {
     }
 
     if (!is->info.flags) { /* Unapproved session */
-        isg_free_session(is);
-        goto kfree;
+	isg_free_session(is);
+	goto kfree;
     } else if (IS_SESSION_APPROVED(is) || IS_SERVICE_ONLINE(is)) {
 	struct timespec ts_ls;
 	struct isg_session *isrv;
@@ -742,8 +775,9 @@ static void isg_session_timeout(unsigned long arg) {
 	if ((is->info.max_duration && is->stat.duration >= is->info.max_duration) ||
 	    (is->info.idle_timeout && ts_now.tv_sec - ts_ls.tv_sec >= is->info.idle_timeout)) {
 	    isg_free_session(is);
-	    goto kfree;
-
+	    if (!IS_SERVICE(is)) {
+	        goto kfree;
+	    }
 	/* Check last export time */
 	} else if (is->info.export_interval && ts_now.tv_sec - is->last_export >= is->info.export_interval) {
 	    is->last_export = ts_now.tv_sec;

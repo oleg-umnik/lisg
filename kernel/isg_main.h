@@ -46,6 +46,8 @@
 #define ISG_SERVICE_NO_ACCT	(1 << 4)
 #define ISG_IS_DYING		(1 << 5)
 
+#define FLAGS_RW_MASK		0x14		/* (010100) */
+
 #define IS_SERVICE(is)				\
 		    (is->info.flags & ISG_IS_SERVICE)
 
@@ -131,6 +133,9 @@ struct isg_in_event {
 	struct isg_session_info_in {
 	    struct isg_session_info sinfo;
 	    u_int8_t service_name[32];
+	    u_int8_t flags_op;
+#define FLAG_OP_SET	0x01
+#define FLAG_OP_UNSET	0x02
 	} __attribute__ ((packed)) si;
 
 	struct nehash_entry_in {
