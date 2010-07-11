@@ -59,6 +59,9 @@ use constant SERVICE_ONLINE       => (1 << 3);
 use constant SERVICE_NO_ACCT      => (1 << 4);
 use constant IS_DYING             => (1 << 5);
 
+use constant FLAG_OP_SET   => 0x01;
+use constant FLAG_OP_UNSET => 0x02;
+
 sub get_conf {
     return %cfg;
 }
@@ -194,6 +197,7 @@ sub init_event_fields {
     $pars->{'out_rate'}			= 0;
     $pars->{'out_burst'}		= 0;
     $pars->{'service_name'}		= "";
+    $pars->{'flags_op'}			= 0;
 
     $pars->{'nehash_pfx'}		= 0;
     $pars->{'nehash_mask'}		= 0;
@@ -225,7 +229,7 @@ sub pack_event {
 
     } else {
 
-	return pack("I a8 N2 H12 v I8 a32",
+	return pack("I a8 N2 H12 v I8 a32 C",
 	    $pars->{'type'},
 	    $pars->{'session_id'},
 	    $pars->{'ipaddr'},
@@ -240,7 +244,8 @@ sub pack_event {
 	    $pars->{'in_burst'},
 	    $pars->{'out_rate'},
 	    $pars->{'out_burst'},
-	    $pars->{'service_name'}
+	    $pars->{'service_name'},
+	    $pars->{'flags_op'}
 	);
     }
 }

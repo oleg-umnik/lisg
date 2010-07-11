@@ -446,7 +446,7 @@ sub job_coa {
 
 	my $ipaddr = Socket::inet_ntoa((Socket::sockaddr_in($sock->peername))[1]);
 
-	if (defined($cfg{coa_server}) && $ipaddr ne "127.0.0.1" && $ipaddr ne $cfg{coa_server}) {
+	if (defined($cfg{coa_server}) && $ipaddr ne $cfg{coa_server}) {
 	    do_log("err", "Only " . $cfg{coa_server} . " is allowed to send CoA requests, ignore packet from '$ipaddr'");
 	    next;
 	}
@@ -487,15 +487,13 @@ sub job_coa {
 	    goto send_rp;
 	}
 
-	my $username   = $rp->attr("User-Name");
 	my $session_id = $rp->attr("Acct-Session-Id");
 	my $nas_port   = $rp->attr("NAS-Port");
+	my $username   = $rp->attr("User-Name");
 	
 	if (defined($username) && !($username =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
 	    undef($username);
 	}
-
-	$ev->{'type'} = ISG::EVENT_SESS_GETLIST;
 
 	if ($session_id) {
 	    $ev->{'session_id'} = ISG::hex_session_id_to_llu($session_id);
@@ -508,21 +506,6 @@ sub job_coa {
 	    $out_err  = "Missing-Attribute";
 
 	    do_log("err", "Can't process request: CoA need User-Name, Acct-Session-Id, or NAS-Port attribute");
-	    goto send_rp;
-	}
-
-	if (isg_send_event($sockk, $ev, \%ev_in) < 0) {
-	    do_log("err", "Unable to get session info: $!");
-	    next;
-	}
-
-	my $f_username = ISG::long2ip($ev_in{'ipaddr'});
-
-	if ($f_username eq "0.0.0.0" || (defined($username) && $username ne $f_username)) {
-	    $out_code = $nak_code;
-	    $out_err  = "Session-Context-Not-Found";
-
-	    do_log("err", "CoA is unable to find session");
 	    goto send_rp;
 	}
 
@@ -547,12 +530,17 @@ sub job_coa {
 	    }
 	}
 
-	if (isg_send_event($sockk, $ev) < 0) {
+	if (isg_send_event($sockk, $ev, \%ev_in) < 0) {
 	    do_log("err", "Unable to disconnect or change session parameters: $!");
 	    next;
 	}
-
-	$out_code = $ack_code;
+	
+	if ($ev_in{'type'} != ISG::EVENT_KERNEL_ACK) {
+	    $out_code = $nak_code;
+	    $out_err  = "Session-Context-Not-Found";
+	} else {
+	    $out_code = $ack_code;
+	}
 
 send_rp:
 	my $p = new Net::Radius::Packet $rad_dict;

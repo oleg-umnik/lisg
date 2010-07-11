@@ -7,8 +7,6 @@ use lib $Bin . "/../lib";
 
 use ISG;
 
-my $data;
-my @avs;
 my $ev; my %rev;
 
 my $PRINTF_TPL = "%-7s %-15s %-15s %-13s %-16s %-7s %-10s %-10s %-10s %-10s";
@@ -22,27 +20,32 @@ if ($sk < 0) {
 }
 
 if ((@ARGV == 2 && $ARGV[0] eq "clear") || (@ARGV == 4 && $ARGV[0] eq "change_rate")) {
-    my $code = "Disconnect-Request";
-    my $rad_dict = ISG::load_radius_dictionary($cfg{radius_dictionary});
-
     if ($ARGV[1] =~ /^Virtual([0-9]{1,})$/) {
-	push(@avs, { "NAS-Port" => $1 });
+	$ev->{'port_number'} = $1;
     } else {
-	push(@avs, { "Acct-Session-Id" => $ARGV[1] });
+	$ev->{'session_id'} = ISG::hex_session_id_to_llu($ARGV[1]);
     }
+
+    $ev->{'type'} = ISG::EVENT_SESS_CLEAR;
 
     if ($ARGV[0] eq "change_rate") {
-	$code = "CoA-Request";
-	push(@avs, { "Class" => "$ARGV[3]/$ARGV[2]" });
+	$ev->{'type'} = ISG::EVENT_SESS_CHANGE;
+
+	$ev->{'in_rate'}  = $ARGV[2] * 1000;
+	$ev->{'out_rate'} = $ARGV[3] * 1000;
+
+	$ev->{'in_burst'}  = $ev->{'in_rate'} * $cfg{burst_factor};
+	$ev->{'out_burst'} = $ev->{'out_rate'} * $cfg{burst_factor};
     }
 
-    my $rp = ISG::send_coa_request($rad_dict, $code, $cfg{coa_secret}, $cfg{coa_port}, \@avs);
-
-    if (ref($rp) ne "Net::Radius::Packet") {
-        print STDERR "Unable to send command to the CoA server ($!). ISGd.pl is not running?\n";
-    } elsif ($rp->code ne "CoA-ACK" && $rp->code ne "Disconnect-ACK") {
-        print STDERR "Unexpected CoA reply code (cause '" . $rp->attr("Error-Cause") . "')\n";
+    if (isg_send_event($sk, $ev, \%rev) < 0) {
+	print STDERR "$ARGV[0]: Unable to change session parameters ($!)\n";
     }
+
+    if ($rev{'type'} != ISG::EVENT_KERNEL_ACK) {
+	print STDERR "$ARGV[0]: Unable to find session\n";
+    }
+
 } elsif (@ARGV == 1 && $ARGV[0] eq "show_count") {
     $ev->{'type'} = ISG::EVENT_SESS_GETCOUNT;
 
@@ -56,7 +59,10 @@ if ((@ARGV == 2 && $ARGV[0] eq "clear") || (@ARGV == 4 && $ARGV[0] eq "change_ra
 
     print "Approved sessions count:\t" . ($act - $unap) . "\n";
     print "Unapproved sessions count:\t" . $unap ."\n";
+
 } elsif (!defined($ARGV[0])) {
+    my $data;
+
     $ev->{'type'} = ISG::EVENT_SESS_GETLIST;
 
     if (isg_send_event($sk, $ev) < 0) {
@@ -125,6 +131,7 @@ if ((@ARGV == 2 && $ARGV[0] eq "clear") || (@ARGV == 4 && $ARGV[0] eq "change_ra
 	    }
 	}
     }
+
 } else {
     print STDERR "Usage: $0 show_count | clear <Virtual# | Session-ID> | change_rate <Virtual# | Session-ID> <in_rate out_rate>\n";
 }
