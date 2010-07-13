@@ -27,6 +27,7 @@
 #define	EVENT_SERV_APPLY	0x17
 #define	EVENT_SDESC_ADD		0x18
 #define	EVENT_SDESC_SWEEP_TC	0x19
+#define	EVENT_SERV_GETLIST	0x20
 
 /* From Kernel to Userspace */
 #define	EVENT_SESS_CREATE	0x03

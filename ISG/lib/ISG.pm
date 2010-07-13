@@ -48,6 +48,7 @@ use constant EVENT_NE_COMMIT      => 0x16;
 use constant EVENT_SERV_APPLY     => 0x17;
 use constant EVENT_SDESC_ADD      => 0x18;
 use constant EVENT_SDESC_SWEEP_TC => 0x19;
+use constant EVENT_SERV_GETLIST   => 0x20;
 
 use constant EVENT_KERNEL_ACK     => 0x98;
 use constant EVENT_KERNEL_NACK    => 0x99;

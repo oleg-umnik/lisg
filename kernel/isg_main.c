@@ -27,6 +27,7 @@ static int isg_add_service_desc(u_int8_t *, u_int8_t *);
 static int isg_apply_service(struct isg_in_event *);
 static void isg_session_timeout(unsigned long);
 static void isg_sweep_service_desc_tc(void);
+static void isg_send_services_list(pid_t, struct isg_in_event *);
 
 static int approve_retry_interval = 60;
 module_param(approve_retry_interval, int, 0600);
@@ -145,6 +146,10 @@ static void nl_receive_main(struct sk_buff *skb) {
 	    isg_send_event_type(from_pid, EVENT_KERNEL_ACK);
 	    break;
 
+	case EVENT_SERV_GETLIST:
+	    isg_send_services_list(from_pid, ev);
+	    break;
+
 	default:
 	    printk(KERN_ERR "ipt_ISG: Unknown event type %d\n", ev->type);
     }
@@ -216,7 +221,10 @@ static void isg_send_event(u_int16_t type, struct isg_session *is, pid_t pid, in
     if (is) {
 	ev->sinfo = is->info;
 	ev->sstat = is->stat;
-	ev->sstat.duration = ts_now.tv_sec - is->start_ktime;
+
+	if (is->start_ktime) {
+	    ev->sstat.duration = ts_now.tv_sec - is->start_ktime;
+	}
 
 	if (is->parent_is) {
 	    ev->parent_session_id = is->parent_is->info.id;
@@ -456,9 +464,6 @@ static int isg_start_session(struct isg_session *is) {
     is->start_ktime = is->last_export = ts_now.tv_sec;
 
     if (is->info.flags & ISG_IS_SERVICE) {
-	if (!is->info.id) {
-	    get_random_bytes(&(is->info.id), sizeof(is->info.id));
-	}
 	is->info.flags |= ISG_SERVICE_ONLINE;
     }
 
@@ -572,8 +577,10 @@ static int isg_free_session(struct isg_session *is) {
 	_isg_free_session(is);
 	current_sess_cnt--;
     } else {
-	is->info.id = 0;
 	is->info.flags &= ~ISG_SERVICE_ONLINE;
+	get_random_bytes(&(is->info.id), sizeof(is->info.id));
+	is->start_ktime = 0;
+	memset(&is->stat, 0, sizeof(is->stat));
     }
 
     return 0;
@@ -698,6 +705,30 @@ static void isg_send_session_count(pid_t pid) {
     isg_send_event(EVENT_SESS_COUNT, is, pid, NLMSG_DONE, 0);
 
     kfree(is);
+
+    spin_unlock_bh(&isg_lock);
+}
+
+static void isg_send_services_list(pid_t pid, struct isg_in_event *ev) {
+    struct isg_session *is, *isrv;
+    struct hlist_node *n;
+    unsigned int t = 0;
+
+    spin_lock_bh(&isg_lock);
+
+    is = isg_find_session(ev);
+
+    if (is && !hlist_empty(&is->srv_head)) {
+	hlist_for_each_entry(isrv, n, &is->srv_head, srv_node) {
+	    if (n->next == NULL) {
+		t = NLMSG_DONE;
+	    }
+	    isg_send_event(EVENT_SESS_INFO, isrv, pid, t, NLM_F_MULTI);
+	}
+    } else {
+	/* Session not found or found, but has no services */
+	isg_send_event(EVENT_SESS_INFO, NULL, pid, NLMSG_DONE, 0);
+    }
 
     spin_unlock_bh(&isg_lock);
 }
