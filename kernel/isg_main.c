@@ -69,12 +69,10 @@ spinlock_t isg_lock = SPIN_LOCK_UNLOCKED;
 
 struct sk_buff *sskb = NULL;
 
-static void nl_receive_main(struct sk_buff *skb) {
+static void isg_nl_receive_skb(struct sk_buff *skb) {
     struct nlmsghdr *nlh = (struct nlmsghdr *) skb->data;
     struct isg_in_event *ev = (struct isg_in_event *) NLMSG_DATA(nlh);
     pid_t from_pid = ((struct nlmsghdr *)(skb->data))->nlmsg_pid;
-
-    mutex_lock(&event_mutex);
 
     switch (ev->type) {
 	int type;
@@ -153,7 +151,26 @@ static void nl_receive_main(struct sk_buff *skb) {
 	default:
 	    printk(KERN_ERR "ipt_ISG: Unknown event type %d\n", ev->type);
     }
+}
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+static void isg_nl_receive(struct sk_buff *skb) {
+#else
+static void isg_nl_receive(struct sock *sk, int len) {
+    struct sk_buff *skb;
+    unsigned int qlen;
+#endif
+    mutex_lock(&event_mutex);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+    isg_nl_receive_skb(skb);
+#else
+    for (qlen = skb_queue_len(&sk->sk_receive_queue); qlen; qlen--) {
+	skb = skb_dequeue(&sk->sk_receive_queue);
+	isg_nl_receive_skb(skb);
+	kfree_skb(skb);
+    }
+#endif
     mutex_unlock(&event_mutex);
 }
 
@@ -196,7 +213,8 @@ static void isg_send_event(u_int16_t type, struct isg_session *is, pid_t pid, in
     int data_size = sizeof(struct isg_out_event);
     int len = NLMSG_SPACE(data_size);
 
-    struct timespec ts_now = ktime_to_timespec(ktime_get());
+    struct timespec ts_now;
+    ktime_get_ts(&ts_now);
 
     if (is && is->info.flags & ISG_SERVICE_NO_ACCT) {
         return;
@@ -417,7 +435,8 @@ err:
 static struct isg_session *isg_create_session(u_int32_t ipaddr, u_int8_t *src_mac) {
     struct isg_session *is;
     unsigned int port_number;
-    struct timespec ts_now = ktime_to_timespec(ktime_get());
+    struct timespec ts_now;
+    ktime_get_ts(&ts_now);
 
     is = kzalloc(sizeof(struct isg_session), GFP_ATOMIC);
     if (!is) {
@@ -452,7 +471,10 @@ static struct isg_session *isg_create_session(u_int32_t ipaddr, u_int8_t *src_ma
 }
 
 static int isg_start_session(struct isg_session *is) {
-    struct timespec ts_now = ktime_to_timespec(ktime_get());
+    struct timespec ts_now;
+    ktime_get_ts(&ts_now);
+
+    is->start_ktime = is->last_export = ts_now.tv_sec;
 
     is->stat.in_packets  = 0;
     is->stat.out_packets = 0;
@@ -460,8 +482,7 @@ static int isg_start_session(struct isg_session *is) {
     is->stat.out_bytes   = 0;
     is->stat.duration    = 0;
 
-    is->in_last_seen = ktime_to_ns(ktime_get());
-    is->start_ktime = is->last_export = ts_now.tv_sec;
+    is->in_last_seen = timespec_to_ns(&ts_now);
 
     if (is->info.flags & ISG_IS_SERVICE) {
 	is->info.flags |= ISG_SERVICE_ONLINE;
@@ -769,7 +790,8 @@ static void isg_update_tokens(struct isg_session *is, u_int64_t now, u_int8_t di
 
 static void isg_session_timeout(unsigned long arg) {
     struct isg_session *is = (struct isg_session *) arg;
-    struct timespec ts_now = ktime_to_timespec(ktime_get());
+    struct timespec ts_now;
+    ktime_get_ts(&ts_now);
 
     if (module_exiting) {
 	return;
@@ -887,6 +909,7 @@ isg_tg(struct sk_buff *skb,
     __be32 laddr, raddr;
 
     u_int32_t pkt_len, pkt_len_bits;
+    struct timespec ts_now;
     u_int64_t now;
 
     iph = skb_header_pointer(skb, 0, sizeof(_iph), &_iph);
@@ -896,7 +919,8 @@ isg_tg(struct sk_buff *skb,
 
     pkt_len = ntohs(iph->tot_len);
 
-    now = ktime_to_ns(ktime_get());
+    ktime_get_ts(&ts_now);
+    now = timespec_to_ns(&ts_now);
 
     pkt_len_bits = pkt_len << 3;
 
@@ -1056,7 +1080,11 @@ static int __init isg_tg_init(void) {
 	return -ENOMEM;
     }
 
-    sknl = netlink_kernel_create(&init_net, ISG_NETLINK_MAIN, 0, nl_receive_main, NULL, THIS_MODULE);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+    sknl = netlink_kernel_create(&init_net, ISG_NETLINK_MAIN, 0, isg_nl_receive, NULL, THIS_MODULE);
+#else
+    sknl = netlink_kernel_create(ISG_NETLINK_MAIN, 0, isg_nl_receive, THIS_MODULE);
+#endif
     if (sknl == NULL) {
 	printk(KERN_ERR "ipt_ISG: Can't create ISG_NETLINK_MAIN socket\n");
 	return -1;

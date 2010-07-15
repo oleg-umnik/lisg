@@ -5,6 +5,9 @@
 #include <net/ip.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
+#include <linux/jhash.h>
+#include <linux/random.h>
+#include <linux/vmalloc.h>
 
 #define ISG_NETLINK_MAIN	MAX_LINKS - 1
 #define PORT_BITMAP_SIZE	65535
