@@ -17,6 +17,8 @@ precision (minimum policing rate was 200 Kbit/s).
 
     *** NOTE! *** Version shown in `iptables -V' must be equal to version
     of your iptables sources.
+    *** NOTE! *** If you're using iptables version < 1.4.0, you must replace
+    libipt_ISG.c file with its modified version from "old_iptables" directory
 
 3) Run make && make install
 4) Run depmod -a && modprobe ipt_ISG
