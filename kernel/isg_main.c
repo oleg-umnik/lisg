@@ -822,7 +822,11 @@ static void isg_session_timeout(unsigned long arg) {
 	    }
 	}
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
+	ns_to_timespec(ts_ls, is->in_last_seen);
+#else
 	ts_ls = ns_to_timespec(is->in_last_seen);
+#endif
 
 	/* Check maximum session duration and idle timeout */
 	if ((is->info.max_duration && is->stat.duration >= is->info.max_duration) ||

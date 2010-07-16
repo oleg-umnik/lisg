@@ -62,6 +62,10 @@
 #define IS_SESSION_APPROVED(is)			\
 		    (is->info.flags & ISG_IS_APPROVED)
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
+#define ns_to_timespec(ts, nsec) (ts).tv_sec = div_long_long_rem(nsec, NSEC_PER_SEC, &(ts).tv_nsec)
+#endif
+
 extern int nehash_key_len;
 extern spinlock_t isg_lock;
 
