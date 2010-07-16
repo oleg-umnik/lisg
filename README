@@ -95,8 +95,8 @@ Firstly we must define classes in etc/tc.conf file:
 
     THRID	0.0.0.0/0
 
-10.0.0.0/8 prefix must named "FIRST" too. "CLASS_A" is just for
-demonstation that we can apply more than one class per service. Ah,
+10.0.0.0/8 prefix must be named "FIRST" too. "CLASS_A" is just for
+demonstration that we can apply more than one class per service. Ah,
 you also may use lower case letters, I don't know why I'm using caps. :)
 
 Next define three service descriptions (see etc/config.pl for more
