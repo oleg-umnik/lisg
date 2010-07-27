@@ -59,18 +59,21 @@ and starts accounting. Otherwise session remains in "unapproved" state
 for approve_retry_interval time (see ipt_ISG module parameters).
 
 If you want session to start when packets destined to user's IP-address
-(not originated by user), then you can do something like this:
+(not only originated by user), then you can do something like this:
 
 # iptables -A FORWARD -s 10.254.0.0/16 -j ISG --session-init
 # iptables -A FORWARD -d 10.254.0.0/16 -j ISG --session-init --init-mode dst
 
+"--session-init" is equal to "--session-init --init-mode src"
+
 See also: iptables -j ISG --help
 
-Remember that rules with "--session-init" parameter is using for session
+Remember that rules with "--session-init --init-mode src" (src init-mode
+is default, so this can be omitted) parameters are using for session
 initialization and router's inbound (FROM user) traffic policing and
-accouting. Rules without this parameter is using just for outbound (TO
-user) traffic policing and accounting (but only if session for this dst
-IP is "approved", otherwise packets will be dropped).
+accouting. Rules without "--session-init" is using just for outbound
+(TO user) traffic policing and accounting (but only if session for this
+dst IP is "approved", otherwise packets will be dropped).
 
 You can also do something like this:
 
