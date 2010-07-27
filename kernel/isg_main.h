@@ -13,6 +13,10 @@
 #define PORT_BITMAP_SIZE	65535
 #define MAX_SD_CLASSES		16
 
+#define INIT_SESSION		0x01
+#define INIT_BY_SRC		0x02
+#define INIT_BY_DST		0x04
+
 #define ISG_DIR_IN		0x01
 #define ISG_DIR_OUT		0x02
 
