@@ -930,7 +930,7 @@ isg_tg(struct sk_buff *skb,
 
     spin_lock_bh(&isg_lock);
 
-    if (iinfo->flags & ISG_DIR_IN) { /* Init direction */
+    if (iinfo->flags & INIT_BY_SRC) { /* Init direction */
 	laddr = iph->saddr;
 	raddr = iph->daddr;
     } else {
@@ -941,11 +941,13 @@ isg_tg(struct sk_buff *skb,
     is = isg_lookup_session(laddr);
 
     if (is == NULL) {
-	if (iinfo->flags & ISG_DIR_IN) {
+	if (iinfo->flags & INIT_SESSION) {
 	    u_int8_t *src_mac = NULL;
 
 	    if (skb_mac_header(skb) >= skb->head && skb_mac_header(skb) + ETH_HLEN <= skb->data) {
-		src_mac = eth_hdr(skb)->h_source;
+		if (iinfo->flags & INIT_BY_SRC) {
+		    src_mac = eth_hdr(skb)->h_source;
+		}
 	    }
 
 	    isg_create_session(laddr, src_mac);
@@ -996,7 +998,7 @@ found:
 	}
     }
 
-    if (iinfo->flags & ISG_DIR_IN) {
+    if (iinfo->flags & INIT_BY_SRC) {
 	isg_update_tokens(is, now, ISG_DIR_IN);
 
 	if (pkt_len_bits <= is->in_tokens || !is->info.in_rate) {
