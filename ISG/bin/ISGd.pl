@@ -286,7 +286,7 @@ sub job_isg {
 
 			if ($rp->vsattributes($rad_dict->vendor_num("Cisco"))) {
 			    my %srv_to_krn;
-			    my @on_cls_list;
+			    my %on_cls_list;
 			    foreach my $val (@{$rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info")}) {
 				if ($val =~ /^(A|N)(.+)/) {
 				    if (!$cfg{srv}{$2}) {
@@ -300,8 +300,8 @@ sub job_isg {
 					my $overlap = 0;
 					my $class_list = $cfg{srv}{$2}{traffic_classes};
 					foreach my $cclass (@{$class_list}) {
-					    if (grep {$cclass eq $_} @on_cls_list) {
-						do_log("warning", "Service '$2' has overlapping class with existing active service, ignoring auto-start");
+					    if ($on_cls_list{$cclass}) {
+						do_log("warning", "Service '$2' has overlapping class with existing active service '$on_cls_list{$cclass}', ignoring auto-start");
 						$overlap = 1;
 						last;
 					    }
@@ -309,7 +309,7 @@ sub job_isg {
 
 					if (!$overlap) {
 					    $srv_to_krn{$2}{auto} = 1;
-					    push(@on_cls_list, @{$class_list});
+					    $on_cls_list{$_} = $2 foreach (@{$class_list});
 					}
 				    }
 				} else {
