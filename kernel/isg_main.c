@@ -573,7 +573,7 @@ static int isg_free_session(struct isg_session *is) {
 	    clear_bit(is->info.port_number, port_bitmap);
 	}
 
-	if (!(is->info.flags & ISG_IS_APPROVED)) {
+	if (!is->info.flags) {
 	    unapproved_sess_cnt--;
 	}
     }
@@ -591,7 +591,9 @@ static int isg_free_session(struct isg_session *is) {
 	}
     }
 
-    isg_send_event(EVENT_SESS_STOP, is, 0, NLMSG_DONE, 0);
+    if (is->info.flags) {
+	isg_send_event(EVENT_SESS_STOP, is, 0, NLMSG_DONE, 0);
+    }
 
     if (!IS_SERVICE(is)) {
 	hlist_del(&is->list);
@@ -957,7 +959,7 @@ isg_tg(struct sk_buff *skb,
 	goto DROP;
     }
 
-    if (!(is->info.flags & ISG_IS_APPROVED)) {
+    if (!is->info.flags) {
         goto DROP;
     }
 
