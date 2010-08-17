@@ -577,6 +577,11 @@ sub job_reload_tc {
 
 ############################################################
 
+sub get_hi_32 {
+    my $int = shift;
+    return $int - (2**32 * int($int / 2**32));
+}
+
 sub do_log {
     if (!$cfg{daemonize} || $_[0] eq "fatal") {
 	shift;
@@ -666,18 +671,14 @@ sub send_radius_request_server {
 	$p->set_attr("Acct-Input-Packets", $ev->{'in_packets'});
 	$p->set_attr("Acct-Output-Packets", $ev->{'out_packets'});
 
-	{
-	    use bigint;
+	$p->set_attr("Acct-Input-String", get_hi_32($ev->{'in_bytes'}));
+	$p->set_attr("Acct-Output-String", get_hi_32($ev->{'out_bytes'}));
 
-	    $p->set_attr("Acct-Input-String", $ev->{'in_bytes'} & 0xffffffff);
-	    $p->set_attr("Acct-Output-String", $ev->{'out_bytes'} & 0xffffffff);
+	$p->set_attr("Acct-Input-Gigawords", $ev->{'in_bytes'} / 2**32);
+	$p->set_attr("Acct-Output-Gigawords", $ev->{'out_bytes'} / 2**32);
 
-	    $p->set_attr("Acct-Input-Gigawords", $ev->{'in_bytes'} >> 32);
-	    $p->set_attr("Acct-Output-Gigawords", $ev->{'out_bytes'} >> 32);
-	
-	    $p->set_vsattr("Cisco", "Cisco-Control-Info", "I" . ($ev->{'in_bytes'} >> 32) . ";" . ($ev->{'in_bytes'} & 0xffffffff));
-	    $p->set_vsattr("Cisco", "Cisco-Control-Info", "O" . ($ev->{'out_bytes'} >> 32) . ";" . ($ev->{'out_bytes'} & 0xffffffff));
-	}
+	$p->set_vsattr("Cisco", "Cisco-Control-Info", "I" . ($ev->{'in_bytes'} / 2**32) . ";" . get_hi_32($ev->{'in_bytes'}));
+	$p->set_vsattr("Cisco", "Cisco-Control-Info", "O" . ($ev->{'out_bytes'} / 2**32) . ";" . get_hi_32($ev->{'out_bytes'}));
 
 	if (defined($ev->{'parent_session_id'})) {
 	    $p->set_vsattr("Cisco", "Cisco-AVPair", "parent-session-id=" . $ev->{'parent_session_id'});
