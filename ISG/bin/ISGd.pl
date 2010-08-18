@@ -674,11 +674,11 @@ sub send_radius_request_server {
 	$p->set_attr("Acct-Input-String", get_hi_32($ev->{'in_bytes'}));
 	$p->set_attr("Acct-Output-String", get_hi_32($ev->{'out_bytes'}));
 
-	$p->set_attr("Acct-Input-Gigawords", $ev->{'in_bytes'} / 2**32);
-	$p->set_attr("Acct-Output-Gigawords", $ev->{'out_bytes'} / 2**32);
+	$p->set_attr("Acct-Input-Gigawords", int($ev->{'in_bytes'} / 2**32));
+	$p->set_attr("Acct-Output-Gigawords", int($ev->{'out_bytes'} / 2**32));
 
-	$p->set_vsattr("Cisco", "Cisco-Control-Info", "I" . ($ev->{'in_bytes'} / 2**32) . ";" . get_hi_32($ev->{'in_bytes'}));
-	$p->set_vsattr("Cisco", "Cisco-Control-Info", "O" . ($ev->{'out_bytes'} / 2**32) . ";" . get_hi_32($ev->{'out_bytes'}));
+	$p->set_vsattr("Cisco", "Cisco-Control-Info", "I" . int($ev->{'in_bytes'} / 2**32) . ";" . get_hi_32($ev->{'in_bytes'}));
+	$p->set_vsattr("Cisco", "Cisco-Control-Info", "O" . int($ev->{'out_bytes'} / 2**32) . ";" . get_hi_32($ev->{'out_bytes'}));
 
 	if (defined($ev->{'parent_session_id'})) {
 	    $p->set_vsattr("Cisco", "Cisco-AVPair", "parent-session-id=" . $ev->{'parent_session_id'});
