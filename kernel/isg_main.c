@@ -896,7 +896,11 @@ isg_tg(struct sk_buff *skb,
 	const void *targinfo)
 #else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28) */
 isg_tg(struct sk_buff *skb,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
 	const struct xt_target_param *par)
+#else
+	const struct xt_action_param *par)
+#endif
 #endif
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
