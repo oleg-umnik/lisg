@@ -72,7 +72,7 @@ struct sk_buff *sskb = NULL;
 static void isg_nl_receive_skb(struct sk_buff *skb) {
     struct nlmsghdr *nlh = (struct nlmsghdr *) skb->data;
     struct isg_in_event *ev = (struct isg_in_event *) NLMSG_DATA(nlh);
-    pid_t from_pid = ((struct nlmsghdr *)(skb->data))->nlmsg_pid;
+    pid_t from_pid = nlh->nlmsg_pid;
 
     switch (ev->type) {
 	int type;
