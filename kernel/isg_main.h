@@ -10,7 +10,7 @@
 #include <linux/vmalloc.h>
 
 #define ISG_NETLINK_MAIN	MAX_LINKS - 1
-#define PORT_BITMAP_SIZE	65535
+#define PORT_BITMAP_SIZE	65536
 #define MAX_SD_CLASSES		16
 
 #define INIT_SESSION		0x01

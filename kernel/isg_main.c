@@ -1080,12 +1080,12 @@ static int __init isg_tg_init(void) {
 
     INIT_HLIST_HEAD(&isg_services);
 
-    port_bitmap = (unsigned long *)__get_free_pages(GFP_KERNEL, 1);
+    port_bitmap = vmalloc(BITS_TO_LONGS(PORT_BITMAP_SIZE) * sizeof(unsigned long));
     if (port_bitmap == NULL) {
         return -ENOMEM;
     }
 
-    memset(port_bitmap, 0, PAGE_SIZE << 1);
+    bitmap_zero(port_bitmap, PORT_BITMAP_SIZE);
 
     if (nehash_init() < 0) {
 	printk(KERN_ERR "ipt_ISG: Unable to initialize network hash table\n");
