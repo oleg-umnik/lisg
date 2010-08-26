@@ -1145,7 +1145,7 @@ static void __exit isg_tg_exit(void) {
 
     vfree(isg_hash);
 
-    free_pages((unsigned long)port_bitmap, 1);
+    vfree(port_bitmap);
 
     printk(KERN_INFO "ipt_ISG: Unloaded\n");
 }
