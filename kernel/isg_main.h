@@ -9,6 +9,11 @@
 #include <linux/random.h>
 #include <linux/vmalloc.h>
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+#include <net/net_namespace.h>
+#include <net/netns/generic.h>
+#endif
+
 #define ISG_NETLINK_MAIN	MAX_LINKS - 1
 #define PORT_BITMAP_SIZE	65536
 #define MAX_SD_CLASSES		16
@@ -70,18 +75,6 @@
 #define ns_to_timespec(ts, nsec) (ts).tv_sec = div_long_long_rem(nsec, NSEC_PER_SEC, &(ts).tv_nsec)
 #endif
 
-extern int nehash_key_len;
-extern spinlock_t isg_lock;
-
-extern int nehash_init(void);
-extern int nehash_add_to_queue(u_int32_t, u_int32_t, u_int8_t *);
-extern int nehash_commit_queue(void);
-extern struct nehash_entry *nehash_lookup(u_int32_t);
-extern void nehash_sweep_queue(void);
-extern void nehash_sweep_entries(void);
-extern void nehash_free_everything(void);
-extern struct traffic_class *nehash_find_class(u_int8_t *);
-
 struct ipt_ISG_info {
     u_int8_t flags;
 };
@@ -137,6 +130,8 @@ struct isg_session {
 
     struct hlist_head srv_head;		/* This session sub-sessions (services) list */
     struct hlist_node srv_node;
+
+    struct isg_net *isg_net;
 };
 
 struct isg_in_event {
@@ -188,5 +183,34 @@ struct isg_service_desc {
     u_int8_t name[32];
     struct traffic_class *tcs[MAX_SD_CLASSES];
 };
+
+struct isg_net {
+    struct hlist_head *hash;
+
+    struct hlist_head *nehash;
+    struct hlist_head nehash_queue;
+    struct hlist_head traffic_class;
+    struct hlist_head services;
+
+    struct sock *sknl;
+    struct sk_buff *sskb;
+    pid_t listener_pid;
+
+    unsigned long *port_bitmap;
+    unsigned int current_sess_cnt;
+    unsigned int unapproved_sess_cnt;
+};
+
+extern int nehash_key_len;
+extern spinlock_t isg_lock;
+
+extern int nehash_init(struct isg_net *);
+extern int nehash_add_to_queue(struct isg_net *, u_int32_t, u_int32_t, u_int8_t *);
+extern int nehash_commit_queue(struct isg_net *);
+extern struct nehash_entry *nehash_lookup(struct isg_net *, u_int32_t);
+extern void nehash_sweep_queue(struct isg_net *);
+extern void nehash_sweep_entries(struct isg_net *);
+extern void nehash_free_everything(struct isg_net *);
+extern struct traffic_class *nehash_find_class(struct isg_net *, u_int8_t *);
 
 #endif

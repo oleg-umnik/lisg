@@ -14,20 +14,20 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Oleg A. Arkhangelsky <sysoleg@yandex.ru>");
 MODULE_DESCRIPTION("Xtables: Linux ISG Access Control");
 
-static inline struct isg_session *isg_find_session(struct isg_in_event *);
+static inline struct isg_session *isg_find_session(struct isg_net *, struct isg_in_event *);
 static int isg_start_session(struct isg_session *);
-static void isg_send_sessions_list(pid_t, struct isg_in_event *);
+static void isg_send_sessions_list(struct isg_net *, pid_t, struct isg_in_event *);
 static int isg_free_session(struct isg_session *);
-static int isg_clear_session(struct isg_in_event *);
-static int isg_update_session(struct isg_in_event *);
-static void isg_send_session_count(pid_t);
-static void isg_send_event(u_int16_t, struct isg_session *, pid_t, int, int);
-static void isg_send_event_type(pid_t, u_int32_t);
-static int isg_add_service_desc(u_int8_t *, u_int8_t *);
-static int isg_apply_service(struct isg_in_event *);
+static int isg_clear_session(struct isg_net *, struct isg_in_event *);
+static int isg_update_session(struct isg_net *, struct isg_in_event *);
+static void isg_send_session_count(struct isg_net *, pid_t);
+static void isg_send_event(struct isg_net *, u_int16_t, struct isg_session *, pid_t, int, int);
+static void isg_send_event_type(struct isg_net *, pid_t, u_int32_t);
+static int isg_add_service_desc(struct isg_net *, u_int8_t *, u_int8_t *);
+static int isg_apply_service(struct isg_net *, struct isg_in_event *);
 static void isg_session_timeout(unsigned long);
-static void isg_sweep_service_desc_tc(void);
-static void isg_send_services_list(pid_t, struct isg_in_event *);
+static void isg_sweep_service_desc_tc(struct isg_net *);
+static void isg_send_services_list(struct isg_net *, pid_t, struct isg_in_event *);
 
 static int approve_retry_interval = 60;
 module_param(approve_retry_interval, int, 0600);
@@ -42,6 +42,7 @@ module_param(nehash_key_len, int, 0400);
 MODULE_PARM_DESC(nehash_key_len, "Network hash key length (in bits)");
 
 /* Don't touch parameters below (unless you know what you're doing) */
+/* TODO: All this must be per-net */
 
 static unsigned int tg_action = XT_CONTINUE;
 module_param(tg_action, uint, 0400);
@@ -52,100 +53,104 @@ module_param(session_check_interval, uint, 0400);
 static unsigned int pass_outgoing = 0;
 module_param(pass_outgoing, bool, 0400);
 
-static struct hlist_head *isg_hash = NULL;
-static struct hlist_head isg_services;
-static struct sock *sknl;
-
-static unsigned long *port_bitmap = NULL;
-static unsigned int jhash_rnd __read_mostly;
-
-static pid_t isg_listener_pid = 0;
-static unsigned int current_sess_cnt = 0;
-static unsigned int unapproved_sess_cnt = 0;
 static bool module_exiting = 0;
+static unsigned int jhash_rnd __read_mostly;
 
 static DEFINE_MUTEX(event_mutex);
 spinlock_t isg_lock = SPIN_LOCK_UNLOCKED;
 
-struct sk_buff *sskb = NULL;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+static int isg_net_id;
+static inline struct isg_net *isg_pernet(struct net *net) {
+    return net_generic(net, isg_net_id);
+}
+#else
+struct isg_net *isg_default_net;
+#endif
 
 static void isg_nl_receive_skb(struct sk_buff *skb) {
     struct nlmsghdr *nlh = (struct nlmsghdr *) skb->data;
     struct isg_in_event *ev = (struct isg_in_event *) NLMSG_DATA(nlh);
     pid_t from_pid = nlh->nlmsg_pid;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+    struct isg_net *isg_net = isg_pernet(sock_net(skb->sk));
+#else
+    struct isg_net *isg_net = isg_default_net;
+#endif
+
     switch (ev->type) {
 	int type;
 
 	case EVENT_LISTENER_REG:
-	    isg_listener_pid = from_pid;
+	    isg_net->listener_pid = from_pid;
 	    printk(KERN_INFO "ipt_ISG: Listener daemon with pid %d registered\n", from_pid);
 	    break;
 
 	case EVENT_SESS_APPROVE:
 	case EVENT_SESS_CHANGE:
-	    if (isg_update_session(ev)) {
+	    if (isg_update_session(isg_net, ev)) {
 		type = EVENT_KERNEL_NACK;
 	    } else {
 		type = EVENT_KERNEL_ACK;
 	    }
 	    if (ev->type == EVENT_SESS_CHANGE) {
-		isg_send_event_type(from_pid, type);
+		isg_send_event_type(isg_net, from_pid, type);
 	    }
 	    break;
 
 	case EVENT_SERV_APPLY:
-	    isg_apply_service(ev);
+	    isg_apply_service(isg_net, ev);
 	    break;
 
 	case EVENT_SESS_GETLIST:
-	    isg_send_sessions_list(from_pid, ev);
+	    isg_send_sessions_list(isg_net, from_pid, ev);
 	    break;
 
 	case EVENT_SESS_GETCOUNT:
-	    isg_send_session_count(from_pid);
+	    isg_send_session_count(isg_net, from_pid);
 	    break;
 
 	case EVENT_SESS_CLEAR:
-	    if (isg_clear_session(ev)) {
+	    if (isg_clear_session(isg_net, ev)) {
 		type = EVENT_KERNEL_NACK;
 	    } else {
 		type = EVENT_KERNEL_ACK;
 	    }
-	    isg_send_event_type(from_pid, type);
+	    isg_send_event_type(isg_net, from_pid, type);
 	    break;
 
 	case EVENT_NE_SWEEP_QUEUE:
-	    nehash_sweep_queue();
-	    isg_send_event_type(from_pid, EVENT_KERNEL_ACK);
+	    nehash_sweep_queue(isg_net);
+	    isg_send_event_type(isg_net, from_pid, EVENT_KERNEL_ACK);
 	    break;
 
 	case EVENT_NE_ADD_QUEUE:
-	    nehash_add_to_queue(ev->ne.pfx, ev->ne.mask, ev->ne.tc_name);
-	    isg_send_event_type(from_pid, EVENT_KERNEL_ACK);
+	    nehash_add_to_queue(isg_net, ev->ne.pfx, ev->ne.mask, ev->ne.tc_name);
+	    isg_send_event_type(isg_net, from_pid, EVENT_KERNEL_ACK);
 	    break;
 
 	case EVENT_NE_COMMIT:
-	    nehash_commit_queue();
-	    isg_send_event_type(from_pid, EVENT_KERNEL_ACK);
+	    nehash_commit_queue(isg_net);
+	    isg_send_event_type(isg_net, from_pid, EVENT_KERNEL_ACK);
 	    break;
 
 	case EVENT_SDESC_ADD:
-	    if (isg_add_service_desc(ev->sdesc.service_name, ev->sdesc.tc_name)) {
+	    if (isg_add_service_desc(isg_net, ev->sdesc.service_name, ev->sdesc.tc_name)) {
 		type = EVENT_KERNEL_NACK;
 	    } else {
 		type = EVENT_KERNEL_ACK;
 	    }
-	    isg_send_event_type(from_pid, type);
+	    isg_send_event_type(isg_net, from_pid, type);
 	    break;
 
 	case EVENT_SDESC_SWEEP_TC:
-	    isg_sweep_service_desc_tc();
-	    isg_send_event_type(from_pid, EVENT_KERNEL_ACK);
+	    isg_sweep_service_desc_tc(isg_net);
+	    isg_send_event_type(isg_net, from_pid, EVENT_KERNEL_ACK);
 	    break;
 
 	case EVENT_SERV_GETLIST:
-	    isg_send_services_list(from_pid, ev);
+	    isg_send_services_list(isg_net, from_pid, ev);
 	    break;
 
 	default:
@@ -174,14 +179,14 @@ static void isg_nl_receive(struct sock *sk, int len) {
     mutex_unlock(&event_mutex);
 }
 
-static void isg_send_skb(pid_t pid) {
-    int err = netlink_unicast(sknl, sskb, pid, MSG_DONTWAIT);
+static void isg_send_skb(struct isg_net *isg_net, pid_t pid) {
+    int err = netlink_unicast(isg_net->sknl, isg_net->sskb, pid, MSG_DONTWAIT);
 
     if (err < 0) {
-	if (pid == isg_listener_pid) {
+	if (pid == isg_net->listener_pid) {
 	    if (err == -ECONNREFUSED) {
-		printk(KERN_ERR "ipt_ISG: Listener daemon (pid %d) disappeared\n", isg_listener_pid);
-	        isg_listener_pid = 0;
+		printk(KERN_ERR "ipt_ISG: Listener daemon (pid %d) disappeared\n", isg_net->listener_pid);
+	        isg_net->listener_pid = 0;
 	    } else {
 		printk(KERN_ERR "ipt_ISG: Lost packet during sending data to listener (err=%d)\n", err);
 	    }
@@ -190,13 +195,13 @@ static void isg_send_skb(pid_t pid) {
 	}
     }
 
-    sskb = NULL;
+    isg_net->sskb = NULL;
 }
 
-static int isg_alloc_skb(unsigned int size) {
-    sskb = alloc_skb(size, GFP_ATOMIC);
+static int isg_alloc_skb(struct isg_net *isg_net, unsigned int size) {
+    isg_net->sskb = alloc_skb(size, GFP_ATOMIC);
 
-    if (!sskb) {
+    if (!isg_net->sskb) {
         printk(KERN_ERR "ipt_ISG: isg_alloc_skb() unable to alloc_skb\n");
         return 0;
     }
@@ -204,7 +209,7 @@ static int isg_alloc_skb(unsigned int size) {
     return 1;
 }
 
-static void isg_send_event(u_int16_t type, struct isg_session *is, pid_t pid, int nl_type, int nl_flags) {
+static void isg_send_event(struct isg_net *isg_net, u_int16_t type, struct isg_session *is, pid_t pid, int nl_type, int nl_flags) {
     struct isg_out_event *ev;
 
     struct nlmsghdr *nlh;
@@ -221,8 +226,8 @@ static void isg_send_event(u_int16_t type, struct isg_session *is, pid_t pid, in
     }
 
     if (pid == 0) {
-	if (isg_listener_pid) {
-	    pid = isg_listener_pid;
+	if (isg_net->listener_pid) {
+	    pid = isg_net->listener_pid;
 	} else {
 	    return;
 	}
@@ -254,23 +259,23 @@ static void isg_send_event(u_int16_t type, struct isg_session *is, pid_t pid, in
     }
 
     if (nl_flags & NLM_F_MULTI) {
-	if (!sskb) {
-	    if (!isg_alloc_skb(NLMSG_GOODSIZE))
+	if (!isg_net->sskb) {
+	    if (!isg_alloc_skb(isg_net, NLMSG_GOODSIZE))
 		goto alloc_fail;
 	} else {
-	    if (len > skb_tailroom(sskb)) {
-		isg_send_skb(pid);
+	    if (len > skb_tailroom(isg_net->sskb)) {
+		isg_send_skb(isg_net, pid);
 
-		if (!isg_alloc_skb(NLMSG_GOODSIZE))
+		if (!isg_alloc_skb(isg_net, NLMSG_GOODSIZE))
 		    goto alloc_fail;
 	    }
 	}
     } else {
-        if (!isg_alloc_skb(len))
+        if (!isg_alloc_skb(isg_net, len))
     	    goto alloc_fail;
     }
 
-    nlh = NLMSG_PUT(sskb, 0, 0, nl_type, data_size);
+    nlh = NLMSG_PUT(isg_net->sskb, 0, 0, nl_type, data_size);
 
     if (nl_flags) {
 	nlh->nlmsg_flags |= nl_flags;
@@ -279,11 +284,11 @@ static void isg_send_event(u_int16_t type, struct isg_session *is, pid_t pid, in
     nl_data = NLMSG_DATA(nlh);
     memcpy(nl_data, ev, data_size);
 
-    NETLINK_CB(sskb).pid = 0;
-    NETLINK_CB(sskb).dst_group = 0;
+    NETLINK_CB(isg_net->sskb).pid = 0;
+    NETLINK_CB(isg_net->sskb).dst_group = 0;
 
     if (nl_type == NLMSG_DONE) {
-	isg_send_skb(pid);
+	isg_send_skb(isg_net, pid);
     }
 
     kfree(ev);
@@ -294,16 +299,16 @@ alloc_fail:
     printk(KERN_ERR "ipt_ISG: SKB allocation failed\n");
 
 nlmsg_failure:
-    if (sskb) {
-	kfree_skb(sskb);
+    if (isg_net->sskb) {
+	kfree_skb(isg_net->sskb);
     }
 
     kfree(ev);
 }
 
-static void isg_send_event_type(pid_t pid, u_int32_t type) {
+static void isg_send_event_type(struct isg_net *isg_net, pid_t pid, u_int32_t type) {
     spin_lock_bh(&isg_lock);
-    isg_send_event(type, NULL, pid, NLMSG_DONE, 0);
+    isg_send_event(isg_net, type, NULL, pid, NLMSG_DONE, 0);
     spin_unlock_bh(&isg_lock);
 }
 
@@ -311,16 +316,11 @@ static inline unsigned int get_isg_hash(u_int32_t val) {
     return jhash_1word(val, jhash_rnd) & (nr_buckets - 1);
 }
 
-static void isg_hash_insert(struct isg_session *is) {
-    unsigned int h = get_isg_hash(is->info.ipaddr);
-    hlist_add_head(&is->list, &isg_hash[h]);
-}
-
-static struct isg_service_desc *find_service_desc(u_int8_t *service_name) {
+static struct isg_service_desc *find_service_desc(struct isg_net *isg_net, u_int8_t *service_name) {
     struct isg_service_desc *sdesc;
     struct hlist_node *n;
 
-    hlist_for_each_entry(sdesc, n, &isg_services, list) {
+    hlist_for_each_entry(sdesc, n, &isg_net->services, list) {
 	if (!strcmp(sdesc->name, service_name)) {
 	    return sdesc;
 	}
@@ -329,16 +329,16 @@ static struct isg_service_desc *find_service_desc(u_int8_t *service_name) {
     return NULL;
 }
 
-static void isg_sweep_service_desc_tc(void) {
+static void isg_sweep_service_desc_tc(struct isg_net *isg_net) {
     struct isg_service_desc *sdesc;
     struct hlist_node *n;
 
-    hlist_for_each_entry(sdesc, n, &isg_services, list) {
+    hlist_for_each_entry(sdesc, n, &isg_net->services, list) {
 	memset(sdesc->tcs, 0, sizeof(sdesc->tcs));
     }
 }
 
-static int isg_add_service_desc(u_int8_t *service_name, u_int8_t *tc_name) {
+static int isg_add_service_desc(struct isg_net *isg_net, u_int8_t *service_name, u_int8_t *tc_name) {
     struct traffic_class *tc = NULL;
     struct traffic_class **tc_list;
     struct isg_service_desc *sdesc;
@@ -346,13 +346,13 @@ static int isg_add_service_desc(u_int8_t *service_name, u_int8_t *tc_name) {
 
     spin_lock_bh(&isg_lock);
 
-    tc = nehash_find_class(tc_name);
+    tc = nehash_find_class(isg_net, tc_name);
     if (!tc) {
         printk(KERN_ERR "ipt_ISG: Unknown traffic class '%s' for service name '%s'\n", tc_name, service_name);
         goto err;
     }
 
-    sdesc = find_service_desc(service_name);
+    sdesc = find_service_desc(isg_net, service_name);
     if (!sdesc) {
 	sdesc = kzalloc(sizeof(struct isg_service_desc), GFP_ATOMIC);
 	if (!sdesc) {
@@ -361,7 +361,7 @@ static int isg_add_service_desc(u_int8_t *service_name, u_int8_t *tc_name) {
 	}
 
 	memcpy(sdesc->name, service_name, sizeof(sdesc->name));
-	hlist_add_head(&sdesc->list, &isg_services);
+	hlist_add_head(&sdesc->list, &isg_net->services);
     }
 
     tc_list = sdesc->tcs;
@@ -385,19 +385,19 @@ err:
     return 1;
 }
 
-static int isg_apply_service(struct isg_in_event *ev) {
+static int isg_apply_service(struct isg_net *isg_net, struct isg_in_event *ev) {
     struct isg_session *is, *nis;
     struct isg_service_desc *sdesc;
 
     spin_lock_bh(&isg_lock);
 
-    sdesc = find_service_desc(ev->si.service_name);
+    sdesc = find_service_desc(isg_net, ev->si.service_name);
     if (!sdesc) {
 	printk(KERN_ERR "ipt_ISG: Unknown service name '%s'\n", ev->si.service_name);
 	goto err;
     }
 
-    is = isg_find_session(ev);
+    is = isg_find_session(isg_net, ev);
     if (is) {
 	nis = kzalloc(sizeof(struct isg_session), GFP_ATOMIC);
 	if (!nis) {
@@ -405,10 +405,12 @@ static int isg_apply_service(struct isg_in_event *ev) {
 	    goto err;
 	}
 
-	nis->sdesc = sdesc;
 	nis->parent_is = is;
 	nis->info = is->info;
+	nis->isg_net = is->isg_net;
 	get_random_bytes(&(nis->info.id), sizeof(nis->info.id));
+
+	nis->sdesc = sdesc;
 
 	hlist_add_head(&nis->srv_node, &is->srv_head);
 
@@ -420,7 +422,7 @@ static int isg_apply_service(struct isg_in_event *ev) {
 
 	spin_unlock_bh(&isg_lock);
 
-	isg_update_session(ev);
+	isg_update_session(isg_net, ev);
 
 	return 0;
     } else {
@@ -432,7 +434,7 @@ err:
     return 1;
 }
 
-static struct isg_session *isg_create_session(u_int32_t ipaddr, u_int8_t *src_mac) {
+static struct isg_session *isg_create_session(struct isg_net *isg_net, u_int32_t ipaddr, u_int8_t *src_mac) {
     struct isg_session *is;
     unsigned int port_number;
     struct timespec ts_now;
@@ -446,9 +448,10 @@ static struct isg_session *isg_create_session(u_int32_t ipaddr, u_int8_t *src_ma
 
     is->info.ipaddr = ipaddr;
     is->start_ktime = ts_now.tv_sec;
+    is->isg_net = isg_net;
 
-    port_number = find_next_zero_bit(port_bitmap, PORT_BITMAP_SIZE, 1);
-    set_bit(port_number, port_bitmap);
+    port_number = find_next_zero_bit(isg_net->port_bitmap, PORT_BITMAP_SIZE, 1);
+    set_bit(port_number, isg_net->port_bitmap);
     is->info.port_number = port_number;
 
     if (src_mac) {
@@ -460,12 +463,12 @@ static struct isg_session *isg_create_session(u_int32_t ipaddr, u_int8_t *src_ma
     setup_timer(&is->timer, isg_session_timeout, (unsigned long)is);
     mod_timer(&is->timer, jiffies + approve_retry_interval * HZ);
 
-    isg_hash_insert(is);
+    hlist_add_head(&is->list, &isg_net->hash[get_isg_hash(is->info.ipaddr)]);
 
-    isg_send_event(EVENT_SESS_CREATE, is, 0, NLMSG_DONE, 0);
+    isg_send_event(isg_net, EVENT_SESS_CREATE, is, 0, NLMSG_DONE, 0);
 
-    current_sess_cnt++;
-    unapproved_sess_cnt++;
+    isg_net->current_sess_cnt++;
+    isg_net->unapproved_sess_cnt++;
 
     return is;
 }
@@ -490,17 +493,17 @@ static int isg_start_session(struct isg_session *is) {
 
     mod_timer(&is->timer, jiffies + session_check_interval * HZ);
 
-    isg_send_event(EVENT_SESS_START, is, 0, NLMSG_DONE, 0);
+    isg_send_event(is->isg_net, EVENT_SESS_START, is, 0, NLMSG_DONE, 0);
 
     return 0;
 }
 
-static int isg_update_session(struct isg_in_event *ev) {
+static int isg_update_session(struct isg_net *isg_net, struct isg_in_event *ev) {
     struct isg_session *is;
 
     spin_lock_bh(&isg_lock);
 
-    is = isg_find_session(ev);
+    is = isg_find_session(isg_net, ev);
 
     if (is) {
 	is->info.in_rate = ev->si.sinfo.in_rate;
@@ -546,7 +549,7 @@ static int isg_update_session(struct isg_in_event *ev) {
 	} else if (ev->type == EVENT_SESS_APPROVE) {
 	    is->info.flags |= ISG_IS_APPROVED;
 	    isg_start_session(is);
-	    unapproved_sess_cnt--;
+	    isg_net->unapproved_sess_cnt--;
 	}
 
 	spin_unlock_bh(&isg_lock);
@@ -570,11 +573,11 @@ static void _isg_free_session(struct isg_session *is) {
 static int isg_free_session(struct isg_session *is) {
     if (!IS_SERVICE(is)) {
 	if (is->info.port_number) {
-	    clear_bit(is->info.port_number, port_bitmap);
+	    clear_bit(is->info.port_number, is->isg_net->port_bitmap);
 	}
 
 	if (!is->info.flags) {
-	    unapproved_sess_cnt--;
+	    is->isg_net->unapproved_sess_cnt--;
 	}
     }
 
@@ -584,7 +587,7 @@ static int isg_free_session(struct isg_session *is) {
 
 	hlist_for_each_entry_safe(isrv, n, t, &is->srv_head, srv_node) {
 	    if (IS_SERVICE_ONLINE(isrv)) {
-		isg_send_event(EVENT_SESS_STOP, isrv, 0, NLMSG_DONE, 0);
+		isg_send_event(isrv->isg_net, EVENT_SESS_STOP, isrv, 0, NLMSG_DONE, 0);
 	    }
 	    hlist_del(&isrv->srv_node);
 	    _isg_free_session(isrv);
@@ -592,13 +595,13 @@ static int isg_free_session(struct isg_session *is) {
     }
 
     if (is->info.flags) {
-	isg_send_event(EVENT_SESS_STOP, is, 0, NLMSG_DONE, 0);
+	isg_send_event(is->isg_net, EVENT_SESS_STOP, is, 0, NLMSG_DONE, 0);
     }
 
     if (!IS_SERVICE(is)) {
 	hlist_del(&is->list);
 	_isg_free_session(is);
-	current_sess_cnt--;
+	is->isg_net->current_sess_cnt--;
     } else {
 	is->info.flags &= ~ISG_SERVICE_ONLINE;
 	get_random_bytes(&(is->info.id), sizeof(is->info.id));
@@ -609,12 +612,12 @@ static int isg_free_session(struct isg_session *is) {
     return 0;
 }
 
-static int isg_clear_session(struct isg_in_event *ev) {
+static int isg_clear_session(struct isg_net *isg_net, struct isg_in_event *ev) {
     struct isg_session *is;
 
     spin_lock_bh(&isg_lock);
 
-    is = isg_find_session(ev);
+    is = isg_find_session(isg_net, ev);
     if (is) {
 	isg_free_session(is);
 	spin_unlock_bh(&isg_lock);
@@ -626,12 +629,12 @@ static int isg_clear_session(struct isg_in_event *ev) {
     return 1;
 }
 
-static inline struct isg_session *isg_lookup_session(u_int32_t ipaddr) {
+static inline struct isg_session *isg_lookup_session(struct isg_net *isg_net, u_int32_t ipaddr) {
     struct isg_session *is;
     struct hlist_node *n;
     unsigned int h = get_isg_hash(ipaddr);
 
-    hlist_for_each_entry(is, n, &isg_hash[h], list) {
+    hlist_for_each_entry(is, n, &isg_net->hash[h], list) {
 	if (is->info.ipaddr == ipaddr) {
             return is;
         }
@@ -650,13 +653,13 @@ static inline int isg_equal(struct isg_in_event *ev, struct isg_session *is) {
     }
 }
 
-static struct isg_session *isg_find_session(struct isg_in_event *ev) {
+static struct isg_session *isg_find_session(struct isg_net *isg_net, struct isg_in_event *ev) {
     unsigned int i;
     struct isg_session *is;
     struct hlist_node *n;
 
     for (i = 0; i < nr_buckets; i++) {
-        hlist_for_each_entry(is, n, &isg_hash[i], list) {
+        hlist_for_each_entry(is, n, &isg_net->hash[i], list) {
 	    if (ev->si.sinfo.flags & ISG_IS_SERVICE) {
 		/* Searching for sub-session (service) */
 		if (!hlist_empty(&is->srv_head)) {
@@ -680,29 +683,29 @@ static struct isg_session *isg_find_session(struct isg_in_event *ev) {
     return NULL;
 }
 
-static void isg_send_sessions_list(pid_t pid, struct isg_in_event *ev) {
+static void isg_send_sessions_list(struct isg_net *isg_net, pid_t pid, struct isg_in_event *ev) {
     unsigned int i, exported_cnt = 0, t = 0;
     struct isg_session *is = NULL;
     struct hlist_node *n;
 
     spin_lock_bh(&isg_lock);
 
-    if (current_sess_cnt == 0) {
-	isg_send_event(EVENT_SESS_INFO, NULL, pid, NLMSG_DONE, 0);
+    if (isg_net->current_sess_cnt == 0) {
+	isg_send_event(isg_net, EVENT_SESS_INFO, NULL, pid, NLMSG_DONE, 0);
         spin_unlock_bh(&isg_lock);
 	return;
     }
 
     if (ev->si.sinfo.port_number || ev->si.sinfo.id) {
-	is = isg_find_session(ev);
-	isg_send_event(EVENT_SESS_INFO, is, pid, NLMSG_DONE, 0);
+	is = isg_find_session(isg_net, ev);
+	isg_send_event(isg_net, EVENT_SESS_INFO, is, pid, NLMSG_DONE, 0);
     } else {
 	for (i = 0; i < nr_buckets; i++) {
-    	    hlist_for_each_entry(is, n, &isg_hash[i], list) {
-    		if (++exported_cnt == current_sess_cnt) {
+    	    hlist_for_each_entry(is, n, &isg_net->hash[i], list) {
+    		if (++exported_cnt == isg_net->current_sess_cnt) {
     		    t = NLMSG_DONE;
     		}
-    		isg_send_event(EVENT_SESS_INFO, is, pid, t, NLM_F_MULTI);
+    		isg_send_event(isg_net, EVENT_SESS_INFO, is, pid, t, NLM_F_MULTI);
     	    }
 	}
     }
@@ -710,7 +713,7 @@ static void isg_send_sessions_list(pid_t pid, struct isg_in_event *ev) {
     spin_unlock_bh(&isg_lock);
 }
 
-static void isg_send_session_count(pid_t pid) {
+static void isg_send_session_count(struct isg_net *isg_net, pid_t pid) {
     struct isg_session *is = NULL;
 
     spin_lock_bh(&isg_lock);
@@ -722,35 +725,35 @@ static void isg_send_session_count(pid_t pid) {
         return;
     }
 
-    is->info.ipaddr = current_sess_cnt;
-    is->info.nat_ipaddr = unapproved_sess_cnt;
+    is->info.ipaddr = isg_net->current_sess_cnt;
+    is->info.nat_ipaddr = isg_net->unapproved_sess_cnt;
 
-    isg_send_event(EVENT_SESS_COUNT, is, pid, NLMSG_DONE, 0);
+    isg_send_event(isg_net, EVENT_SESS_COUNT, is, pid, NLMSG_DONE, 0);
 
     kfree(is);
 
     spin_unlock_bh(&isg_lock);
 }
 
-static void isg_send_services_list(pid_t pid, struct isg_in_event *ev) {
+static void isg_send_services_list(struct isg_net *isg_net, pid_t pid, struct isg_in_event *ev) {
     struct isg_session *is, *isrv;
     struct hlist_node *n;
     unsigned int t = 0;
 
     spin_lock_bh(&isg_lock);
 
-    is = isg_find_session(ev);
+    is = isg_find_session(isg_net, ev);
 
     if (is && !hlist_empty(&is->srv_head)) {
 	hlist_for_each_entry(isrv, n, &is->srv_head, srv_node) {
 	    if (n->next == NULL) {
 		t = NLMSG_DONE;
 	    }
-	    isg_send_event(EVENT_SESS_INFO, isrv, pid, t, NLM_F_MULTI);
+	    isg_send_event(isg_net, EVENT_SESS_INFO, isrv, pid, t, NLM_F_MULTI);
 	}
     } else {
 	/* Session not found or found, but has no services */
-	isg_send_event(EVENT_SESS_INFO, NULL, pid, NLMSG_DONE, 0);
+	isg_send_event(isg_net, EVENT_SESS_INFO, NULL, pid, NLMSG_DONE, 0);
     }
 
     spin_unlock_bh(&isg_lock);
@@ -840,7 +843,7 @@ static void isg_session_timeout(unsigned long arg) {
 	/* Check last export time */
 	} else if (is->info.export_interval && ts_now.tv_sec - is->last_export >= is->info.export_interval) {
 	    is->last_export = ts_now.tv_sec;
-	    isg_send_event(EVENT_SESS_UPDATE, is, 0, NLMSG_DONE, 0);
+	    isg_send_event(is->isg_net, EVENT_SESS_UPDATE, is, 0, NLMSG_DONE, 0);
 	}
     }
 
@@ -917,6 +920,7 @@ isg_tg(struct sk_buff *skb,
     struct nehash_entry *ne;
     struct traffic_class **tc_list;
     __be32 laddr, raddr;
+    struct isg_net *isg_net;
 
     u_int32_t pkt_len, pkt_len_bits;
     struct timespec ts_now;
@@ -934,6 +938,12 @@ isg_tg(struct sk_buff *skb,
 
     pkt_len_bits = pkt_len << 3;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+    isg_net = isg_pernet(dev_net((par->in != NULL) ? par->in : par->out));
+#else
+    isg_net = isg_default_net;
+#endif
+
     spin_lock_bh(&isg_lock);
 
     if (iinfo->flags & INIT_BY_SRC) { /* Init direction */
@@ -944,7 +954,7 @@ isg_tg(struct sk_buff *skb,
 	raddr = iph->saddr;
     }
 
-    is = isg_lookup_session(laddr);
+    is = isg_lookup_session(isg_net, laddr);
 
     if (is == NULL) {
 	if (iinfo->flags & INIT_SESSION) {
@@ -956,7 +966,7 @@ isg_tg(struct sk_buff *skb,
 		}
 	    }
 
-	    isg_create_session(laddr, src_mac);
+	    isg_create_session(isg_net, laddr, src_mac);
 	} else if (pass_outgoing) {
 	    goto ACCEPT;
 	}
@@ -971,7 +981,7 @@ isg_tg(struct sk_buff *skb,
 	/* This session is having sub-sessions, try to classify */
         struct hlist_node *n;
 
-	ne = nehash_lookup(raddr);
+	ne = nehash_lookup(is->isg_net, raddr);
 	if (ne == NULL) {
 	    goto DROP;
 	}
@@ -1051,6 +1061,141 @@ DROP:
     return NF_DROP;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+static int isg_initialize(struct net *net) {
+#else
+static int isg_initialize(struct isg_net *isg_net) {
+#endif
+    unsigned int i;
+    int hsize = sizeof(struct hlist_head) * nr_buckets;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+    struct isg_net *isg_net = isg_pernet(net);
+#endif
+
+    isg_net->hash = vmalloc(hsize);
+    if (isg_net->hash == NULL) {
+	return -ENOMEM;
+    }
+
+    for (i = 0; i < nr_buckets; i++) {
+        INIT_HLIST_HEAD(&isg_net->hash[i]);
+    }
+
+    INIT_HLIST_HEAD(&isg_net->services);
+
+    isg_net->port_bitmap = vmalloc(BITS_TO_LONGS(PORT_BITMAP_SIZE) * sizeof(unsigned long));
+    if (isg_net->port_bitmap == NULL) {
+        return -ENOMEM;
+    }
+
+    bitmap_zero(isg_net->port_bitmap, PORT_BITMAP_SIZE);
+
+    if (nehash_init(isg_net) < 0) {
+	printk(KERN_ERR "ipt_ISG: Unable to initialize network hash table\n");
+	return -ENOMEM;
+    }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+    isg_net->sknl = netlink_kernel_create(net, ISG_NETLINK_MAIN, 0, isg_nl_receive, NULL, THIS_MODULE);
+#else
+    isg_net->sknl = netlink_kernel_create(ISG_NETLINK_MAIN, 0, isg_nl_receive, THIS_MODULE);
+#endif
+    if (isg_net->sknl == NULL) {
+	printk(KERN_ERR "ipt_ISG: Can't create ISG_NETLINK_MAIN socket\n");
+	return -1;
+    }
+
+    return 0;
+}
+
+void isg_cleanup(struct isg_net *isg_net) {
+    unsigned int i;
+    struct isg_session *is;
+    struct isg_service_desc *sdesc;
+    struct hlist_node *n, *t;
+
+    isg_net->listener_pid = 0;
+
+    if (isg_net->sknl != NULL) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25)
+	netlink_kernel_release(isg_net->sknl);
+#else
+	sock_release(isg_net->sknl->sk_socket);
+#endif
+    }
+
+    spin_lock_bh(&isg_lock);
+
+    for (i = 0; i < nr_buckets; i++) {
+	hlist_for_each_entry_safe(is, n, t, &isg_net->hash[i], list) {
+	    isg_free_session(is);
+	}
+    }
+
+    hlist_for_each_entry_safe(sdesc, n, t, &isg_net->services, list) {
+	hlist_del(&sdesc->list);
+	kfree(sdesc);
+    }
+
+    spin_unlock_bh(&isg_lock);
+
+    nehash_free_everything(isg_net);
+
+    vfree(isg_net->hash);
+    vfree(isg_net->port_bitmap);
+}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+static int __net_init isg_net_init(struct net *net) {
+    int err = -ENOMEM;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+    struct isg_net *isg_net;
+    isg_net = kzalloc(sizeof(struct isg_net), GFP_KERNEL);
+    if (isg_net == NULL) {
+	goto err_alloc;
+    }
+
+    err = net_assign_generic(net, isg_net_id, isg_net);
+    if (err < 0) {
+	goto err_assign;
+    }
+#endif
+
+    err = isg_initialize(net);
+    if (err < 0) {
+	return err;
+    }
+
+    return 0;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+err_assign:
+    kfree(isg_net);
+err_alloc:
+    return err;
+#endif
+}
+
+static void __net_exit isg_net_exit(struct net *net) {
+    struct isg_net *isg_net = isg_pernet(net);
+
+    isg_cleanup(isg_net);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+    kfree(isg_net);
+#endif
+}
+
+static struct pernet_operations isg_net_ops = {
+    .init = isg_net_init,
+    .exit = isg_net_exit,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
+    .id   = &isg_net_id,
+    .size = sizeof(struct isg_net),
+#endif
+};
+#endif
+
 static struct xt_target isg_tg_reg __read_mostly = {
     .name		= "ISG",
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28)
@@ -1064,42 +1209,27 @@ static struct xt_target isg_tg_reg __read_mostly = {
 };
 
 static int __init isg_tg_init(void) {
-    unsigned int i;
-    int hsize = sizeof(struct hlist_head) * nr_buckets;
+    int err;
 
     get_random_bytes(&jhash_rnd, sizeof(jhash_rnd));
 
-    isg_hash = vmalloc(hsize);
-    if (isg_hash == NULL) {
-	return -ENOMEM;
-    }
-
-    for (i = 0; i < nr_buckets; i++) {
-        INIT_HLIST_HEAD(&isg_hash[i]);
-    }
-
-    INIT_HLIST_HEAD(&isg_services);
-
-    port_bitmap = vmalloc(BITS_TO_LONGS(PORT_BITMAP_SIZE) * sizeof(unsigned long));
-    if (port_bitmap == NULL) {
-        return -ENOMEM;
-    }
-
-    bitmap_zero(port_bitmap, PORT_BITMAP_SIZE);
-
-    if (nehash_init() < 0) {
-	printk(KERN_ERR "ipt_ISG: Unable to initialize network hash table\n");
-	return -ENOMEM;
-    }
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
-    sknl = netlink_kernel_create(&init_net, ISG_NETLINK_MAIN, 0, isg_nl_receive, NULL, THIS_MODULE);
-#else
-    sknl = netlink_kernel_create(ISG_NETLINK_MAIN, 0, isg_nl_receive, THIS_MODULE);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+    err = register_pernet_gen_subsys(&isg_net_id, &isg_net_ops);
+#else /* < 2.6.33 */
+    err = register_pernet_subsys(&isg_net_ops);
 #endif
-    if (sknl == NULL) {
-	printk(KERN_ERR "ipt_ISG: Can't create ISG_NETLINK_MAIN socket\n");
-	return -1;
+#else /* >= 2.6.24 */
+    isg_default_net = kzalloc(sizeof(struct isg_net), GFP_ATOMIC);
+    if (isg_default_net == NULL) {
+	printk(KERN_ERR "ipt_ISG: Unable to allocate net structure\n");
+	return -ENOMEM;
+    }
+
+    err = isg_initialize(isg_default_net);
+#endif
+    if (err < 0) {
+	return err;
     }
 
     printk(KERN_INFO "ipt_ISG: Loaded (built on %s)\n", _BUILD_DATE);
@@ -1108,44 +1238,20 @@ static int __init isg_tg_init(void) {
 }
 
 static void __exit isg_tg_exit(void) {
-    unsigned int i;
-    struct isg_session *is;
-    struct isg_service_desc *sdesc;
-    struct hlist_node *n, *t;
-
     module_exiting = 1;
-    isg_listener_pid = 0;
 
     xt_unregister_target(&isg_tg_reg);
 
-    if (sknl != NULL) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25)
-	netlink_kernel_release(sknl);
-#else
-	sock_release(sknl->sk_socket);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+    unregister_pernet_gen_subsys(isg_net_id, &isg_net_ops);
+#else /* < 2.6.33 */
+    unregister_pernet_subsys(&isg_net_ops);
 #endif
-    }
-
-    spin_lock_bh(&isg_lock);
-
-    for (i = 0; i < nr_buckets; i++) {
-	hlist_for_each_entry_safe(is, n, t, &isg_hash[i], list) {
-	    isg_free_session(is);
-	}
-    }
-
-    hlist_for_each_entry_safe(sdesc, n, t, &isg_services, list) {
-	hlist_del(&sdesc->list);
-	kfree(sdesc);
-    }
-
-    spin_unlock_bh(&isg_lock);
-
-    nehash_free_everything();
-
-    vfree(isg_hash);
-
-    vfree(port_bitmap);
+#else /* >= 2.6.24 */
+    isg_cleanup(isg_default_net);
+    kfree(isg_default_net);
+#endif
 
     printk(KERN_INFO "ipt_ISG: Unloaded\n");
 }
