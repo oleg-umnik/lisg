@@ -199,9 +199,15 @@ struct isg_net {
     unsigned long *port_bitmap;
     unsigned int current_sess_cnt;
     unsigned int unapproved_sess_cnt;
+
+    struct ctl_table_header *sysctl_hdr;
+
+    unsigned int approve_retry_interval;
+    unsigned int tg_action;
+    unsigned int pass_outgoing;
 };
 
-extern int nehash_key_len;
+extern unsigned int nehash_key_len;
 extern spinlock_t isg_lock;
 
 extern int nehash_init(struct isg_net *);

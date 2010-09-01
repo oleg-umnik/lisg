@@ -29,20 +29,19 @@ static void isg_session_timeout(unsigned long);
 static void isg_sweep_service_desc_tc(struct isg_net *);
 static void isg_send_services_list(struct isg_net *, pid_t, struct isg_in_event *);
 
-static int approve_retry_interval = 60;
-module_param(approve_retry_interval, int, 0600);
+static unsigned int approve_retry_interval = 60;
+module_param(approve_retry_interval, uint, 0400);
 MODULE_PARM_DESC(approve_retry_interval, "Session approve retry interval (in seconds)");
 
-static int nr_buckets = 8192;
-module_param(nr_buckets, int, 0400);
+static unsigned int nr_buckets = 8192;
+module_param(nr_buckets, uint, 0400);
 MODULE_PARM_DESC(nr_buckets, "Number of buckets to store current sessions list");
 
-int nehash_key_len = 20;
-module_param(nehash_key_len, int, 0400);
+unsigned int nehash_key_len = 20;
+module_param(nehash_key_len, uint, 0400);
 MODULE_PARM_DESC(nehash_key_len, "Network hash key length (in bits)");
 
 /* Don't touch parameters below (unless you know what you're doing) */
-/* TODO: All this must be per-net */
 
 static unsigned int tg_action = XT_CONTINUE;
 module_param(tg_action, uint, 0400);
@@ -64,6 +63,37 @@ static int isg_net_id;
 static inline struct isg_net *isg_pernet(struct net *net) {
     return net_generic(net, isg_net_id);
 }
+
+static struct ctl_table_header *isg_sysctl_hdr;
+static struct ctl_table empty_ctl_table[1];
+
+struct ctl_path net_ipt_isg_ctl_path[] = {
+    { .procname = "net", },
+    { .procname = "ipt_ISG", },
+    { },
+};
+
+static struct ctl_table isg_net_table[] = {
+    {
+	.procname	= "approve_retry_interval",
+	.maxlen		= sizeof(int),
+	.mode		= 0644,
+	.proc_handler	= proc_dointvec
+    },
+    {
+	.procname	= "tg_action",
+	.maxlen		= sizeof(int),
+	.mode		= 0644,
+	.proc_handler	= proc_dointvec
+    },
+    {
+	.procname	= "pass_outgoing",
+	.maxlen		= sizeof(int),
+	.mode		= 0644,
+	.proc_handler	= proc_dointvec
+    },
+    { },
+};
 #else
 struct isg_net *isg_default_net;
 #endif
@@ -461,7 +491,7 @@ static struct isg_session *isg_create_session(struct isg_net *isg_net, u_int32_t
     get_random_bytes(&(is->info.id), sizeof(is->info.id));
 
     setup_timer(&is->timer, isg_session_timeout, (unsigned long)is);
-    mod_timer(&is->timer, jiffies + approve_retry_interval * HZ);
+    mod_timer(&is->timer, jiffies + isg_net->approve_retry_interval * HZ);
 
     hlist_add_head(&is->list, &isg_net->hash[get_isg_hash(is->info.ipaddr)]);
 
@@ -967,7 +997,7 @@ isg_tg(struct sk_buff *skb,
 	    }
 
 	    isg_create_session(isg_net, laddr, src_mac);
-	} else if (pass_outgoing) {
+	} else if (isg_net->pass_outgoing) {
 	    goto ACCEPT;
 	}
 	goto DROP;
@@ -1054,7 +1084,7 @@ found:
 
 ACCEPT:
     spin_unlock_bh(&isg_lock);
-    return tg_action;
+    return isg_net->tg_action;
 
 DROP:
     spin_unlock_bh(&isg_lock);
@@ -1148,9 +1178,10 @@ void isg_cleanup(struct isg_net *isg_net) {
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 static int __net_init isg_net_init(struct net *net) {
+    struct isg_net *isg_net;
+    struct ctl_table *table;
     int err = -ENOMEM;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
-    struct isg_net *isg_net;
     isg_net = kzalloc(sizeof(struct isg_net), GFP_KERNEL);
     if (isg_net == NULL) {
 	goto err_alloc;
@@ -1162,25 +1193,62 @@ static int __net_init isg_net_init(struct net *net) {
     }
 #endif
 
+    isg_net = isg_pernet(net);
+
+    table = kmemdup(isg_net_table, sizeof(isg_net_table), GFP_KERNEL);
+    if (table == NULL) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+	goto err_assign;
+#else
+	return -ENOMEM;
+#endif
+    }
+
+    table[0].data = &isg_net->approve_retry_interval;
+    table[1].data = &isg_net->tg_action;
+    table[2].data = &isg_net->pass_outgoing;
+
+    isg_net->approve_retry_interval = approve_retry_interval;
+    isg_net->tg_action = tg_action;
+    isg_net->pass_outgoing = pass_outgoing;
+
+    isg_net->sysctl_hdr = register_net_sysctl_table(net, net_ipt_isg_ctl_path, table);
+    if (isg_net->sysctl_hdr == NULL) {
+	err = -ENOMEM;
+	goto err_reg;
+    }
+
     err = isg_initialize(net);
     if (err < 0) {
-	return err;
+	goto err_init;
     }
 
     return 0;
 
+err_init:
+    unregister_net_sysctl_table(isg_net->sysctl_hdr);
+err_reg:
+    kfree(table);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
 err_assign:
     kfree(isg_net);
 err_alloc:
+    return err;
+#else
     return err;
 #endif
 }
 
 static void __net_exit isg_net_exit(struct net *net) {
     struct isg_net *isg_net = isg_pernet(net);
+    struct ctl_table *table;
 
     isg_cleanup(isg_net);
+
+    table = isg_net->sysctl_hdr->ctl_table_arg;
+    unregister_net_sysctl_table(isg_net->sysctl_hdr);
+    kfree(table);
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
     kfree(isg_net);
 #endif
@@ -1214,6 +1282,11 @@ static int __init isg_tg_init(void) {
     get_random_bytes(&jhash_rnd, sizeof(jhash_rnd));
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+    isg_sysctl_hdr = register_sysctl_paths(net_ipt_isg_ctl_path, empty_ctl_table);
+    if (isg_sysctl_hdr == NULL) {
+	return -ENOMEM;
+    }
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
     err = register_pernet_gen_subsys(&isg_net_id, &isg_net_ops);
 #else /* < 2.6.33 */
@@ -1248,6 +1321,7 @@ static void __exit isg_tg_exit(void) {
 #else /* < 2.6.33 */
     unregister_pernet_subsys(&isg_net_ops);
 #endif
+    unregister_sysctl_table(isg_sysctl_hdr);
 #else /* >= 2.6.24 */
     isg_cleanup(isg_default_net);
     kfree(isg_default_net);
