@@ -68,25 +68,38 @@ static struct ctl_table_header *isg_sysctl_hdr;
 static struct ctl_table empty_ctl_table[1];
 
 struct ctl_path net_ipt_isg_ctl_path[] = {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+    { .procname = "net", .ctl_name = CTL_NET, },
+#else
     { .procname = "net", },
+#endif
     { .procname = "ipt_ISG", },
     { },
 };
 
 static struct ctl_table isg_net_table[] = {
     {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+	.ctl_name	= CTL_UNNUMBERED,
+#endif
 	.procname	= "approve_retry_interval",
 	.maxlen		= sizeof(int),
 	.mode		= 0644,
 	.proc_handler	= proc_dointvec
     },
     {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+	.ctl_name	= CTL_UNNUMBERED,
+#endif
 	.procname	= "tg_action",
 	.maxlen		= sizeof(int),
 	.mode		= 0644,
 	.proc_handler	= proc_dointvec
     },
     {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+	.ctl_name	= CTL_UNNUMBERED,
+#endif
 	.procname	= "pass_outgoing",
 	.maxlen		= sizeof(int),
 	.mode		= 0644,
