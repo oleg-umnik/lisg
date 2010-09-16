@@ -3,10 +3,6 @@ package ISG;
 use strict;
 use warnings;
 
-use FindBin '$Bin';
-require $Bin . "/../etc/config.pl";
-our %cfg;
-
 use POSIX;
 use Socket;
 use IO::Select;
@@ -18,7 +14,6 @@ use Digest::MD5;
 require Exporter;
 use vars qw(@ISA @EXPORT);
 @ISA = qw(Exporter);
-
 @EXPORT = qw(prepare_netlink_socket netlink_read add_socket_for_select isg_send_event isg_parse_event);
 
 use constant AF_NETLINK 	=> 0x10;
@@ -62,10 +57,6 @@ use constant IS_DYING             => (1 << 5);
 
 use constant FLAG_OP_SET   => 0x01;
 use constant FLAG_OP_UNSET => 0x02;
-
-sub get_conf {
-    return %cfg;
-}
 
 sub NLMSG_ALIGN {
     my $len = shift;
@@ -183,33 +174,32 @@ sub send_coa_request {
 sub init_event_fields {
     my $pars;
 
-    $pars->{'type'}			= 0;
+    $pars->{'type'}		= 0;
 
-    $pars->{'session_id'}		= "";
-    $pars->{'ipaddr'}			= 0;
-    $pars->{'nat_ipaddr'}		= 0;
-    $pars->{'port_number'}		= 0;
-    $pars->{'flags'}			= 0;
-    $pars->{'export_interval'}		= $cfg{session_alive_interval};
-    $pars->{'idle_timeout'}		= $cfg{session_idle_timeout};
-    $pars->{'max_duration'}		= $cfg{session_max_duration};
-    $pars->{'in_rate'}			= 0;
-    $pars->{'in_burst'}			= 0;
-    $pars->{'out_rate'}			= 0;
-    $pars->{'out_burst'}		= 0;
-    $pars->{'service_name'}		= "";
-    $pars->{'flags_op'}			= 0;
+    $pars->{'session_id'}	= "";
+    $pars->{'ipaddr'}		= 0;
+    $pars->{'nat_ipaddr'}	= 0;
+    $pars->{'port_number'}	= 0;
+    $pars->{'flags'}		= 0;
+    $pars->{'alive_interval'}	= 0;
+    $pars->{'idle_timeout'}	= 0;
+    $pars->{'max_duration'}	= 0;
+    $pars->{'in_rate'}		= 0;
+    $pars->{'in_burst'}		= 0;
+    $pars->{'out_rate'}		= 0;
+    $pars->{'out_burst'}	= 0;
+    $pars->{'service_name'}	= "";
+    $pars->{'flags_op'}		= 0;
 
-    $pars->{'nehash_pfx'}		= 0;
-    $pars->{'nehash_mask'}		= 0;
-    $pars->{'nehash_tc_name'}		= 0;
+    $pars->{'nehash_pfx'}	= 0;
+    $pars->{'nehash_mask'}	= 0;
+    $pars->{'nehash_tc_name'}	= 0;
 
     return $pars;
 }
 
 sub pack_event {
     my $pars = shift;
-    my $trash;
 
     if ($pars->{'type'} == ISG::EVENT_SDESC_ADD) {
 
@@ -238,7 +228,7 @@ sub pack_event {
 	    0, # MAC-Address is read-only
 	    $pars->{'flags'},
 	    $pars->{'port_number'},
-	    $pars->{'export_interval'},
+	    $pars->{'alive_interval'},
 	    $pars->{'idle_timeout'},
 	    $pars->{'max_duration'},
 	    $pars->{'in_rate'},
@@ -269,7 +259,7 @@ sub unpack_event {
 	$pars->{'macaddr'},
 	$pars->{'flags'},
 	$pars->{'port_number'},
-	$pars->{'export_interval'},
+	$pars->{'alive_interval'},
 	$pars->{'idle_timeout'},
 	$pars->{'max_duration'},
 	$pars->{'in_rate'},

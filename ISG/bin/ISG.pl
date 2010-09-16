@@ -31,8 +31,6 @@ sub sprint_flags {
     return $ret;
 }
 
-my %cfg = ISG::get_conf();
-
 my $sk = prepare_netlink_socket();
 if ($sk < 0) {
     print STDERR "Unable to open netlink socket: $!\n";
@@ -56,8 +54,8 @@ if ((@ARGV == 2 && $ARGV[0] eq "clear") || (@ARGV == 4 && $ARGV[0] eq "change_ra
 	$ev->{'in_rate'}  = $ARGV[2] * 1000;
 	$ev->{'out_rate'} = $ARGV[3] * 1000;
 
-	$ev->{'in_burst'}  = $ev->{'in_rate'} * $cfg{burst_factor};
-	$ev->{'out_burst'} = $ev->{'out_rate'} * $cfg{burst_factor};
+	$ev->{'in_burst'}  = $ev->{'in_rate'} * 1.5;
+	$ev->{'out_burst'} = $ev->{'out_rate'} * 1.5;
     }
 
     if (isg_send_event($sk, $ev, \%rev) < 0) {

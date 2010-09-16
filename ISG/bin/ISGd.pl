@@ -10,9 +10,21 @@ use Switch;
 use POSIX;
 use Fcntl;
 use Sys::Syslog;
+use Getopt::Long;
 
 use IPTables::SubnetSkeleton;
 use ISG;
+
+my $cfg_source;
+
+GetOptions("conf=s" => \$cfg_source);
+
+if (!defined($cfg_source)) {
+    $cfg_source = $Bin . "/../etc/config.pl";
+}
+
+require $cfg_source;
+our %cfg;
 
 my $data;
 my $sk;
@@ -25,8 +37,6 @@ my $nas_id;
 
 $SIG{INT}  = \&term_all;
 $SIG{TERM} = \&term_all;
-
-my %cfg = ISG::get_conf();
 
 sub term_all {
     my $sig = shift;
@@ -60,7 +70,7 @@ my $rad_dict = ISG::load_radius_dictionary($cfg{radius_dictionary});
 my $ev; my %rep;
 
 foreach my $srv_name (keys %{$cfg{srv}}) {
-    # TODO: Check that max_duration > idle_timeout > export_interval [only when != 0]
+    # TODO: Check that max_duration > idle_timeout > alive_interval [only when != 0]
 
     if (!defined($cfg{srv}{$srv_name}{traffic_classes})) {
 	do_log("err", "At least one class must be defined, throw service '$srv_name'");
@@ -95,6 +105,10 @@ foreach my $srv_name (keys %{$cfg{srv}}) {
 	$cfg{srv}{$srv_name}{u_rate}  = 0;
 	$cfg{srv}{$srv_name}{u_burst} = 0;
     }
+
+    $cfg{srv}{$srv_name}{alive_interval} = $cfg{session_alive_interval} if (!defined($cfg{srv}{$srv_name}{alive_interval}));
+    $cfg{srv}{$srv_name}{max_duration} = $cfg{session_max_duration} if (!defined($cfg{srv}{$srv_name}{max_duration}));
+    $cfg{srv}{$srv_name}{idle_timeout} = $cfg{session_idle_timeout} if (!defined($cfg{srv}{$srv_name}{idle_timeout}));
 }
 
 my %tc_names; &reload_tc(0, 0, \%tc_names);
@@ -272,9 +286,9 @@ sub job_isg {
 			$oev->{'type'} = ISG::EVENT_SESS_APPROVE;
 			$oev->{'port_number'} = $exp_ev->{'port_number'};
 
-			$oev->{'export_interval'} = $alive_interval if (defined($alive_interval));
-			$oev->{'max_duration'} = $max_duration if (defined($max_duration));
-			$oev->{'idle_timeout'} = $idle_timeout if (defined($idle_timeout));
+			$oev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{session_alive_interval};
+			$oev->{'max_duration'} = defined($max_duration) ? $max_duration : $cfg{session_max_duration};
+			$oev->{'idle_timeout'} = defined($idle_timeout) ? $idle_timeout : $cfg{idle_timeout};
 
 			if (defined($speed_info) && $speed_info =~ /^(\d{1,})\/(\d{1,})$/) {
 			    $oev->{'in_rate'}  = $2 * 1000;
@@ -330,7 +344,7 @@ sub job_isg {
 				$sev->{'in_rate'} = $cfg{srv}{$key}{u_rate};
 				$sev->{'in_burst'} = $cfg{srv}{$key}{u_burst};
 
-				$sev->{'export_interval'} = $cfg{srv}{$key}{alive_interval};
+				$sev->{'alive_interval'} = $cfg{srv}{$key}{alive_interval};
 				$sev->{'idle_timeout'} = $cfg{srv}{$key}{idle_timeout};
 				$sev->{'max_duration'} = $cfg{srv}{$key}{max_duration};
 
@@ -490,7 +504,7 @@ sub job_coa {
 	my $session_id = $rp->attr("Acct-Session-Id");
 	my $nas_port   = $rp->attr("NAS-Port");
 	my $username   = $rp->attr("User-Name");
-	
+
 	if (defined($username) && !($username =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
 	    undef($username);
 	}
