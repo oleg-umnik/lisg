@@ -204,11 +204,11 @@ Attribute:	Idle-Timeout
 Description:	Standard attribute (as per RFC)
 Example:	Session-Timeout = 1800
 
-Attribute:	Class = "<in_rate>/<out_rate>"
+Attribute:	Class = <in_rate>/<out_rate>
 Description:	Traffic rate policing for session. in_rate and out_rate is integer
 		given in Kbit/s. This attribute has no effect if there is at least
 		one service applied for session.
-Example:	Class = "5000/2500" (5 Mbit/s for download, 2.5 for upload)
+Example:	Class = 5000/2500 (5 Mbit/s for download, 2.5 for upload)
 
 Attribute:	Framed-IP-Address = <IP-address>
 Description:	See 1-to-1 NAT trick below
