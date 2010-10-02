@@ -811,7 +811,7 @@ static void isg_update_tokens(struct isg_session *is, u_int64_t now, u_int8_t di
 	tokens = div_s64(is->info.in_rate * (now - is->in_last_seen), NSEC_PER_SEC);
 #else
 	tokens = is->info.in_rate * (now - is->in_last_seen);
-	tokens = do_div(tokens, NSEC_PER_SEC);
+	do_div(tokens, NSEC_PER_SEC);
 #endif
 	if ((is->in_tokens + tokens) > is->info.in_burst) {
             is->in_tokens = is->info.in_burst;
@@ -825,7 +825,7 @@ static void isg_update_tokens(struct isg_session *is, u_int64_t now, u_int8_t di
 	tokens = div_s64(is->info.out_rate * (now - is->out_last_seen), NSEC_PER_SEC);
 #else
 	tokens = is->info.out_rate * (now - is->out_last_seen);
-	tokens = do_div(tokens, NSEC_PER_SEC);
+	do_div(tokens, NSEC_PER_SEC);
 #endif
 	if ((is->out_tokens + tokens) > is->info.out_burst) {
             is->out_tokens = is->info.out_burst;
