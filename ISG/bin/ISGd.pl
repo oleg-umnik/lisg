@@ -5,8 +5,6 @@ use strict;
 use FindBin '$Bin';
 use lib $Bin . "/../lib";
 
-use Switch;
-
 use POSIX;
 use Fcntl;
 use Sys::Syslog;
@@ -668,11 +666,9 @@ sub send_radius_request_server {
     }
 
     if ($code eq "Accounting-Request") {
-	switch ($ev->{'type'}) {
-	    case ISG::EVENT_SESS_START  { $p->set_attr("Acct-Status-Type", "Start"); }
-	    case ISG::EVENT_SESS_UPDATE { $p->set_attr("Acct-Status-Type", "Alive"); }
-	    case ISG::EVENT_SESS_STOP   { $p->set_attr("Acct-Status-Type", "Stop"); }
-	}
+	$p->set_attr("Acct-Status-Type", "Start") if ($ev->{'type'} == ISG::EVENT_SESS_START);
+	$p->set_attr("Acct-Status-Type", "Alive") if ($ev->{'type'} == ISG::EVENT_SESS_UPDATE);
+	$p->set_attr("Acct-Status-Type", "Stop") if ($ev->{'type'} == ISG::EVENT_SESS_STOP);
 
 	if ($ev->{'nat_ipaddr'}) {
 	    $p->set_attr("Framed-IP-Address", ISG::long2ip($ev->{'nat_ipaddr'}));
