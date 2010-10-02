@@ -481,6 +481,7 @@ static struct isg_session *isg_create_session(struct isg_net *isg_net, u_int32_t
     struct isg_session *is;
     unsigned int port_number;
     struct timespec ts_now;
+
     ktime_get_ts(&ts_now);
 
     is = kzalloc(sizeof(struct isg_session), GFP_ATOMIC);
@@ -1116,6 +1117,10 @@ static int isg_initialize(struct isg_net *isg_net) {
     struct isg_net *isg_net = isg_pernet(net);
 #endif
 
+    isg_net->approve_retry_interval = approve_retry_interval;
+    isg_net->tg_action = tg_action;
+    isg_net->pass_outgoing = pass_outgoing;
+
     isg_net->hash = vmalloc(hsize);
     if (isg_net->hash == NULL) {
 	return -ENOMEM;
@@ -1220,10 +1225,6 @@ static int __net_init isg_net_init(struct net *net) {
     table[0].data = &isg_net->approve_retry_interval;
     table[1].data = &isg_net->tg_action;
     table[2].data = &isg_net->pass_outgoing;
-
-    isg_net->approve_retry_interval = approve_retry_interval;
-    isg_net->tg_action = tg_action;
-    isg_net->pass_outgoing = pass_outgoing;
 
     isg_net->sysctl_hdr = register_net_sysctl_table(net, net_ipt_isg_ctl_path, table);
     if (isg_net->sysctl_hdr == NULL) {
