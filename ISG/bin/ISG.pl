@@ -22,10 +22,10 @@ sub sprint_flags {
 	    $ret .= $ev->{'flags'} & ISG::IS_APPROVED_SESSION ? "A" : "";
 	} else {
 	    $ret .= "S";
-	    $ret .= $ev->{'flags'} & ISG::SERVICE_STATUS_ON ? "O" : "";
-	    $ret .= $ev->{'flags'} & ISG::SERVICE_ONLINE    ? "U" : "";
-	    $ret .= $ev->{'flags'} & ISG::SERVICE_NO_ACCT   ? "Z" : "";
 	}
+        $ret .= $ev->{'flags'} & ISG::SERVICE_STATUS_ON ? "O" : "";
+        $ret .= $ev->{'flags'} & ISG::SERVICE_ONLINE    ? "U" : "";
+        $ret .= $ev->{'flags'} & ISG::NO_ACCT           ? "Z" : "";
     }
 
     return $ret;
@@ -184,5 +184,5 @@ Keys to flags:
  S	This is a service (or a sub-session)
  O	Service status is on
  U	Service is online (RADIUS accounting is active)
- Z	Service accounting is disabled completely
+ Z	Accounting is disabled completely
 HELP

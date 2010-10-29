@@ -35,6 +35,9 @@ $cfg{session_max_duration} = 86400;
 ### Check traffic classification file MD5 sum every N seconds. If sum was changed re-read this file.
 $cfg{tc_check_interval} = 300; ## Every 5 minutes
 
+### Don't send RADIUS accounting for main session (even RADIUS Start and Stop)
+#$cfg{no_accounting} = 1; ## Default is to send
+
 ####################### Services description #######################
 
 ### Begin ``TESTSERV'' service ###

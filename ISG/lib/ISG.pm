@@ -48,12 +48,12 @@ use constant EVENT_SERV_GETLIST   => 0x20;
 use constant EVENT_KERNEL_ACK     => 0x98;
 use constant EVENT_KERNEL_NACK    => 0x99;
 
-use constant IS_APPROVED_SESSION  => (1 << 0);
-use constant IS_SERVICE           => (1 << 1);
-use constant SERVICE_STATUS_ON    => (1 << 2);
-use constant SERVICE_ONLINE       => (1 << 3);
-use constant SERVICE_NO_ACCT      => (1 << 4);
-use constant IS_DYING             => (1 << 5);
+use constant IS_APPROVED_SESSION => (1 << 0);
+use constant IS_SERVICE          => (1 << 1);
+use constant SERVICE_STATUS_ON   => (1 << 2);
+use constant SERVICE_ONLINE      => (1 << 3);
+use constant NO_ACCT             => (1 << 4);
+use constant IS_DYING            => (1 << 5);
 
 use constant FLAG_OP_SET   => 0x01;
 use constant FLAG_OP_UNSET => 0x02;

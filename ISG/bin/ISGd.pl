@@ -351,7 +351,7 @@ sub job_isg {
 				}
 
 				if (defined($cfg{srv}{$key}{no_accounting})) {
-				    $sev->{'flags'} |= ISG::SERVICE_NO_ACCT;
+				    $sev->{'flags'} |= ISG::NO_ACCT;
 				}
 
 				if (isg_send_event($sk, $sev) < 0) {
@@ -369,8 +369,12 @@ sub job_isg {
 			    }
 			}
 
+			if (defined($cfg{no_accounting})) {
+			    $oev->{'flags'} |= ISG::NO_ACCT;
+			}
+
 			if (isg_send_event($sk, $oev) < 0) {
-			    do_log("err", "Error sending reply for SESS_CREATE: $!");
+			    do_log("err", "Error sending EVENT_SESS_APPROVE: $!");
 			}
 
 			my $speed_str = "";

@@ -56,7 +56,7 @@
 #define ISG_IS_SERVICE		(1 << 1)
 #define ISG_SERVICE_STATUS_ON	(1 << 2)
 #define ISG_SERVICE_ONLINE	(1 << 3)
-#define ISG_SERVICE_NO_ACCT	(1 << 4)
+#define ISG_NO_ACCT		(1 << 4)
 #define ISG_IS_DYING		(1 << 5)
 
 #define FLAGS_RW_MASK		0x14		/* (010100) */
