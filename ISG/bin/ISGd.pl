@@ -217,7 +217,9 @@ sub job_isg {
 			my $ipaddr = ISG::long2ip($ev->{'ipaddr'});
 			my $nat_ipaddr = ISG::long2ip($ev->{'nat_ipaddr'});
 
-			send_radius_request("Accounting-Request", $ev);
+			unless ($ev->{'flags'} & ISG::NO_ACCT) {
+			    send_radius_request("Accounting-Request", $ev);
+			}
 
 			if ($ev->{'flags'} & ISG::IS_SERVICE && $ev->{'type'} == ISG::EVENT_SESS_START) {
 			    do_log("info", "Service '" . $ev->{'service_name'} . "' for '$ipaddr' started");

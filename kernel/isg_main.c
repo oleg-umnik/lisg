@@ -264,10 +264,6 @@ static void isg_send_event(struct isg_net *isg_net, u_int16_t type, struct isg_s
     struct timespec ts_now;
     ktime_get_ts(&ts_now);
 
-    if (is && is->info.flags & ISG_NO_ACCT && type != EVENT_SESS_INFO) {
-	return;
-    }
-
     if (pid == 0) {
 	if (isg_net->listener_pid) {
 	    pid = isg_net->listener_pid;
