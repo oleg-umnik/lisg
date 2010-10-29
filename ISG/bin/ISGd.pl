@@ -288,7 +288,7 @@ sub job_isg {
 
 			$oev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{session_alive_interval};
 			$oev->{'max_duration'} = defined($max_duration) ? $max_duration : $cfg{session_max_duration};
-			$oev->{'idle_timeout'} = defined($idle_timeout) ? $idle_timeout : $cfg{idle_timeout};
+			$oev->{'idle_timeout'} = defined($idle_timeout) ? $idle_timeout : $cfg{session_idle_timeout};
 
 			if (defined($speed_info) && $speed_info =~ /^(\d{1,})\/(\d{1,})$/) {
 			    $oev->{'in_rate'}  = $2 * 1000;
