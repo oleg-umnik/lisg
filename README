@@ -204,11 +204,12 @@ Attribute:	Idle-Timeout
 Description:	Standard attribute (as per RFC)
 Example:	Session-Timeout = 1800
 
-Attribute:	Class = <in_rate>/<out_rate>
-Description:	Traffic rate policing for session. in_rate and out_rate is integer
-		given in Kbit/s. This attribute has no effect if there is at least
-		one service applied for session.
-Example:	Class = 5000/2500 (5 Mbit/s for download, 2.5 for upload)
+Attribute:	Cisco-Account-Info = QU;cir;normal burst;D;cir;normal burst
+Description:	Traffic rate policing for the session upstream and downstream
+		directions. cir is given in bit/s. burst in bytes. This
+		attribute has no effect if there is at least one service
+		applied for session.
+Example:	Cisco-Account-Info = QU;512000;96000;D;512000;96000
 
 Attribute:	Framed-IP-Address = <IP-address>
 Description:	See 1-to-1 NAT trick below

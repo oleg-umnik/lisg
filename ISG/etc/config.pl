@@ -67,5 +67,4 @@ $cfg{srv}{TESTSERV}{max_duration}   = 10000; ## Equals to $cfg{session_max_durat
 $cfg{debug} = 1;
 $cfg{pid_file} = "/var/run/ISGd.pid";
 $cfg{radius_dictionary} = $FindBin::RealBin . "/../etc/raddb/dictionary";
-$cfg{burst_factor} = 1.5;
 $cfg{tc_file} = $FindBin::RealBin . "/../etc/tc.conf"

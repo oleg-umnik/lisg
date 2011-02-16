@@ -275,10 +275,23 @@ sub job_isg {
 
 		    if ($rp->code eq "Access-Accept") {
 			my $oev;
+			my %srv_list; my %srv_to_krn; my %on_cls_list;
+			my @rate_info;
+
+			if ($rp->vsattributes($rad_dict->vendor_num("Cisco"))) {
+			    foreach my $val (@{$rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info")}) {
+				if ($val =~ /^(A|N)(.+)/) {
+				    $srv_list{$2} = $1;
+				} elsif ($val =~ /^Q/) {
+				    @rate_info = parse_account_qos($val);
+				} else {
+				    do_log("err", "Unknown attribute Cisco-Account-Info = $val, ignoring");
+				}
+			    }
+			}
 
 			my $nat_ipaddr = $rp->attr('Framed-IP-Address');
-			my $speed_info = $rp->attr('Class');
-
+			
 			my $alive_interval = $rp->attr('Acct-Interim-Interval');
 			my $max_duration   = $rp->attr('Session-Timeout');
 			my $idle_timeout   = $rp->attr('Idle-Timeout');
@@ -290,76 +303,70 @@ sub job_isg {
 			$oev->{'max_duration'} = defined($max_duration) ? $max_duration : $cfg{session_max_duration};
 			$oev->{'idle_timeout'} = defined($idle_timeout) ? $idle_timeout : $cfg{session_idle_timeout};
 
-			if (defined($speed_info) && $speed_info =~ /^(\d{1,})\/(\d{1,})$/) {
-			    $oev->{'in_rate'}  = $2 * 1000;
-			    $oev->{'in_burst'} = $oev->{'in_rate'} * $cfg{burst_factor};
+			if (defined($rate_info[0])) {
+			    $oev->{'in_rate'}  = $rate_info[0];
+			    $oev->{'in_burst'} = $rate_info[1];
 			
-			    $oev->{'out_rate'}  = $1 * 1000;
-			    $oev->{'out_burst'} = $oev->{'out_rate'} * $cfg{burst_factor};
+			    $oev->{'out_rate'}  = $rate_info[2];
+			    $oev->{'out_burst'} = $rate_info[3];
 			}
 
-			if ($rp->vsattributes($rad_dict->vendor_num("Cisco"))) {
-			    my %srv_to_krn;
-			    my %on_cls_list;
-			    foreach my $val (@{$rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info")}) {
-				if ($val =~ /^(A|N)(.+)/) {
-				    if (!$cfg{srv}{$2}) {
-					do_log("warning", "Service '$2' is not defined in configuration, ignoring");
-					next;
-				    }
+			foreach my $srv_name (keys %srv_list) {
+			    my $srv_status = $srv_list{$srv_name};
 
-				    $srv_to_krn{$2}{hit} = 1;
-
-				    if ($1 eq "A") {
-					my $overlap = 0;
-					my $class_list = $cfg{srv}{$2}{traffic_classes};
-					foreach my $cclass (@{$class_list}) {
-					    if ($on_cls_list{$cclass}) {
-						do_log("warning", "Service '$2' has overlapping class with existing active service '$on_cls_list{$cclass}', ignoring auto-start");
-						$overlap = 1;
-						last;
-					    }
-					}
-
-					if (!$overlap) {
-					    $srv_to_krn{$2}{auto} = 1;
-					    $on_cls_list{$_} = $2 foreach (@{$class_list});
-					}
-				    }
-				} else {
-				    do_log("err", "Bad Account-Info attribute value: '$val', ignoring");
-				}
+			    if (!$cfg{srv}{$srv_name}) {
+				do_log("warning", "Service '$srv_name' is not defined in configuration, ignoring");
+				next;
 			    }
 
-			    foreach my $key (keys %srv_to_krn) {
-				my $sev;
+			    $srv_to_krn{$srv_name}{hit} = 1;
 
-				$sev->{'type'} = ISG::EVENT_SERV_APPLY;
-				$sev->{'service_name'} = $key;
-				$sev->{'port_number'} = $exp_ev->{'port_number'};
-
-				$sev->{'out_rate'} = $cfg{srv}{$key}{d_rate};
-				$sev->{'out_burst'} = $cfg{srv}{$key}{d_burst};
-
-				$sev->{'in_rate'} = $cfg{srv}{$key}{u_rate};
-				$sev->{'in_burst'} = $cfg{srv}{$key}{u_burst};
-
-				$sev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{srv}{$key}{alive_interval};
-				$sev->{'idle_timeout'} = $cfg{srv}{$key}{idle_timeout};
-				$sev->{'max_duration'} = $cfg{srv}{$key}{max_duration};
-
-				if (defined($srv_to_krn{$key}{auto})) {
-				    $sev->{'flags'} |= ISG::SERVICE_STATUS_ON;
+			    if ($srv_status eq "A") {
+				my $overlap = 0;
+				my $class_list = $cfg{srv}{$srv_name}{traffic_classes};
+				foreach my $cclass (@{$class_list}) {
+				    if ($on_cls_list{$cclass}) {
+					do_log("warning", "Service '$srv_name' has overlapping class with existing active service '$on_cls_list{$cclass}', ignoring auto-start");
+					$overlap = 1;
+					last;
+				    }
 				}
 
-				if (defined($cfg{srv}{$key}{no_accounting})) {
-				    $sev->{'flags'} |= ISG::NO_ACCT;
+				if (!$overlap) {
+				    $srv_to_krn{$srv_name}{auto} = 1;
+				    $on_cls_list{$_} = $srv_name foreach (@{$class_list});
 				}
+			    }
+			}
 
-				if (isg_send_event($sk, $sev) < 0) {
-				    do_log("err", "Error sending EVENT_SERV_APPLY for service '$key': $!");
-				    next;
-				}
+			foreach my $key (keys %srv_to_krn) {
+			    my $sev;
+
+			    $sev->{'type'} = ISG::EVENT_SERV_APPLY;
+			    $sev->{'service_name'} = $key;
+			    $sev->{'port_number'} = $exp_ev->{'port_number'};
+
+			    $sev->{'out_rate'} = $cfg{srv}{$key}{d_rate};
+			    $sev->{'out_burst'} = $cfg{srv}{$key}{d_burst};
+
+			    $sev->{'in_rate'} = $cfg{srv}{$key}{u_rate};
+			    $sev->{'in_burst'} = $cfg{srv}{$key}{u_burst};
+
+			    $sev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{srv}{$key}{alive_interval};
+			    $sev->{'idle_timeout'} = $cfg{srv}{$key}{idle_timeout};
+			    $sev->{'max_duration'} = $cfg{srv}{$key}{max_duration};
+
+			    if (defined($srv_to_krn{$key}{auto})) {
+			        $sev->{'flags'} |= ISG::SERVICE_STATUS_ON;
+			    }
+
+			    if (defined($cfg{srv}{$key}{no_accounting})) {
+			        $sev->{'flags'} |= ISG::NO_ACCT;
+			    }
+
+			    if (isg_send_event($sk, $sev) < 0) {
+			        do_log("err", "Error sending EVENT_SERV_APPLY for service '$key': $!");
+			        next;
 			    }
 			}
 
@@ -379,12 +386,7 @@ sub job_isg {
 			    do_log("err", "Error sending EVENT_SESS_APPROVE: $!");
 			}
 
-			my $speed_str = "";
-			if (defined($speed_info)) {
-			    $speed_str = " (policed at $speed_info Kbit)";
-			}
-
-			do_log("info", "Session '$exp_login' on 'Virtual" . $exp_ev->{'port_number'} ."' accepted by '$src_host:$src_port'" . $speed_str);
+			do_log("info", "Session '$exp_login' on 'Virtual" . $exp_ev->{'port_number'} ."' accepted by '$src_host:$src_port'");
 
 		    } elsif ($rp->code eq "Access-Reject") {
 			do_log("info", "Session '$exp_login' rejected by '$src_host:$src_port'");
@@ -530,21 +532,24 @@ sub job_coa {
 	if ($rp->code eq "Disconnect-Request") {
 	    $ev->{'type'} = ISG::EVENT_SESS_CLEAR;
 	} else {
+	    my @rate_info;
+	
 	    $ev->{'type'} = ISG::EVENT_SESS_CHANGE;
-
-	    my $class = $rp->attr("Class");
-	    if (defined($class) && $class =~ /^\d{1,}\/\d{1,}$/) {
-		my ($out_rate, $in_rate) = split(/\//, $class);
-
-		if (defined($in_rate)) {
-		    $ev->{'in_rate'}  = $in_rate * 1000;
-		    $ev->{'in_burst'} = $ev->{'in_rate'} * $cfg{burst_factor};
+	
+	    if ($rp->vsattributes($rad_dict->vendor_num("Cisco"))) {
+		foreach my $val (@{$rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info")}) {
+		    if ($val =~ /^Q/) {
+			@rate_info = parse_account_qos($val);
+		    }
 		}
+	    }
 
-		if (defined($out_rate)) {
-		    $ev->{'out_rate'}  = $out_rate * 1000;
-		    $ev->{'out_burst'} = $ev->{'out_rate'} * $cfg{burst_factor};
-		}
+	    if (defined($rate_info[0])) {
+		$ev->{'in_rate'}  = $rate_info[0];
+		$ev->{'in_burst'} = $rate_info[1];
+
+		$ev->{'out_rate'}  = $rate_info[2];
+		$ev->{'out_burst'} = $rate_info[3];
 	    }
 	}
 
@@ -594,6 +599,19 @@ sub job_reload_tc {
 }
 
 ############################################################
+
+sub parse_account_qos {
+    my $val = shift;
+    my @ret;
+
+    if ($val =~ /^QU;(\d{1,});(\d{1,});D;(\d{1,});(\d{1,})$/) {
+	push(@ret, $1);
+	push(@ret, $2 * 8);
+	push(@ret, $3);
+	push(@ret, $4 * 8);
+    }
+    return @ret;
+}
 
 sub get_hi_32 {
     my $int = shift;
