@@ -344,7 +344,7 @@ sub job_isg {
 				$sev->{'in_rate'} = $cfg{srv}{$key}{u_rate};
 				$sev->{'in_burst'} = $cfg{srv}{$key}{u_burst};
 
-				$sev->{'alive_interval'} = $cfg{srv}{$key}{alive_interval};
+				$sev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{srv}{$key}{alive_interval};
 				$sev->{'idle_timeout'} = $cfg{srv}{$key}{idle_timeout};
 				$sev->{'max_duration'} = $cfg{srv}{$key}{max_duration};
 
