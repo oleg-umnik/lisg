@@ -204,6 +204,10 @@ Attribute:	Idle-Timeout
 Description:	Standard attribute (as per RFC)
 Example:	Session-Timeout = 1800
 
+Attribute:	Class = cookie_value
+Description:	Standard attribute (as per RFC). String up to 32 chars.
+Example:	Class = user_id_31
+
 Attribute:	Cisco-Account-Info = QU;cir;normal burst;D;cir;normal burst
 Description:	Traffic rate policing for the session upstream and downstream
 		directions. cir is given in bit/s. burst in bytes. This

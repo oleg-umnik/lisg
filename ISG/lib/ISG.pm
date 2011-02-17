@@ -22,7 +22,7 @@ use constant NL_HDR_LEN 	=> 16;
 use constant NLMSG_ALIGNTO	=> 4;
 use constant NLMSG_DONE		=> 0x3;
 use constant NLM_F_MULTI	=> 0x2;
-use constant IN_EVENT_MSG_LEN 	=> 140;
+use constant IN_EVENT_MSG_LEN 	=> 172;
 
 use constant EVENT_LISTENER_REG  => 0x01;
 use constant EVENT_SESS_APPROVE  => 0x04;
@@ -177,6 +177,7 @@ sub init_event_fields {
     $pars->{'type'}		= 0;
 
     $pars->{'session_id'}	= "";
+    $pars->{'cookie'}		= "";
     $pars->{'ipaddr'}		= 0;
     $pars->{'nat_ipaddr'}	= 0;
     $pars->{'port_number'}	= 0;
@@ -220,9 +221,10 @@ sub pack_event {
 
     } else {
 
-	return pack("I a8 N2 H12 v I8 a32 C",
+	return pack("I a8 a32 N2 H12 v I8 a32 C",
 	    $pars->{'type'},
 	    $pars->{'session_id'},
+	    $pars->{'cookie'},
 	    $pars->{'ipaddr'},
 	    $pars->{'nat_ipaddr'},
 	    0, # MAC-Address is read-only
@@ -254,6 +256,7 @@ sub unpack_event {
 	$pars->{'type'},
 	$session_id_hi,
 	$session_id_lo,
+	$pars->{'cookie'},
 	$pars->{'ipaddr'},
 	$pars->{'nat_ipaddr'},
 	$pars->{'macaddr'},
@@ -279,11 +282,16 @@ sub unpack_event {
 	$p_session_id_hi,
 	$p_session_id_lo,
 	$pars->{'service_name'}
-    ) = unpack("I I2 N2 H12 v I8 I i I10 a32", shift);
+    ) = unpack("I I2 a32 N2 H12 v I8 I i I10 a32", shift);
 
     $pars->{'service_name'} =~ s/\000//g;
     if (!length($pars->{'service_name'})) {
 	undef($pars->{'service_name'});
+    }
+
+    $pars->{'cookie'} =~ s/\000//g;
+    if (!length($pars->{'cookie'})) {
+	undef($pars->{'cookie'});
     }
 
     if ($pars->{'macaddr'} eq "000000000000") {

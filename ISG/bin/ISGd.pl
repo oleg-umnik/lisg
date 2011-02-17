@@ -290,11 +290,11 @@ sub job_isg {
 			    }
 			}
 
-			my $nat_ipaddr = $rp->attr('Framed-IP-Address');
-			
+			my $nat_ipaddr     = $rp->attr('Framed-IP-Address');
 			my $alive_interval = $rp->attr('Acct-Interim-Interval');
 			my $max_duration   = $rp->attr('Session-Timeout');
 			my $idle_timeout   = $rp->attr('Idle-Timeout');
+			my $class          = $rp->attr('Class');
 
 			$oev->{'type'} = ISG::EVENT_SESS_APPROVE;
 			$oev->{'port_number'} = $exp_ev->{'port_number'};
@@ -302,6 +302,8 @@ sub job_isg {
 			$oev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{session_alive_interval};
 			$oev->{'max_duration'} = defined($max_duration) ? $max_duration : $cfg{session_max_duration};
 			$oev->{'idle_timeout'} = defined($idle_timeout) ? $idle_timeout : $cfg{session_idle_timeout};
+
+			$oev->{'cookie'} = substr($class, 0, 32) if (defined($class));
 
 			if (defined($rate_info[0])) {
 			    $oev->{'in_rate'}  = $rate_info[0];
@@ -710,6 +712,10 @@ sub send_radius_request_server {
 
 	$p->set_attr("Acct-Input-Gigawords", int($ev->{'in_bytes'} / 2**32));
 	$p->set_attr("Acct-Output-Gigawords", int($ev->{'out_bytes'} / 2**32));
+
+	if (defined($ev->{'cookie'})) {
+	    $p->set_attr("Class", $ev->{'cookie'});
+	}
 
 	$p->set_vsattr("Cisco", "Cisco-Control-Info", "I" . int($ev->{'in_bytes'} / 2**32) . ";" . get_hi_32($ev->{'in_bytes'}));
 	$p->set_vsattr("Cisco", "Cisco-Control-Info", "O" . int($ev->{'out_bytes'} / 2**32) . ";" . get_hi_32($ev->{'out_bytes'}));
