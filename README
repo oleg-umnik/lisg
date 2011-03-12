@@ -213,6 +213,7 @@ Description:	Traffic rate policing for the session upstream and downstream
 		directions. cir is given in bit/s. burst in bytes. This
 		attribute has no effect if there is at least one service
 		applied for session.
+		Cisco recommended value for burst = cir / 8 * 1.5
 Example:	Cisco-Account-Info = QU;512000;96000;D;512000;96000
 
 Attribute:	Framed-IP-Address = <IP-address>
