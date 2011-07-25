@@ -55,8 +55,12 @@ module_param(pass_outgoing, bool, 0400);
 static bool module_exiting = 0;
 static unsigned int jhash_rnd __read_mostly;
 
+#if !defined(DEFINE_SPINLOCK)
+# define DEFINE_SPINLOCK(x) spinlock_t x = SPIN_LOCK_UNLOCKED
+#endif
+
 static DEFINE_MUTEX(event_mutex);
-spinlock_t isg_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(isg_lock);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 static int isg_net_id;
