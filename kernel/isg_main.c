@@ -60,7 +60,7 @@ static unsigned int jhash_rnd __read_mostly;
 #endif
 
 static DEFINE_MUTEX(event_mutex);
-static DEFINE_SPINLOCK(isg_lock);
+DEFINE_SPINLOCK(isg_lock);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 static int isg_net_id;
