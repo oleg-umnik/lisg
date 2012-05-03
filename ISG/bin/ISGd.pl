@@ -227,7 +227,9 @@ sub job_isg {
 			} elsif ($ev->{'type'} == ISG::EVENT_SESS_STOP) {
 
 			    if ($ev->{'flags'} & ISG::IS_APPROVED_SESSION) {
-				if (defined($cfg{static_nat}) && $ev->{'nat_ipaddr'} && $nat_ipaddr !~ /^192\.168/ && $ipaddr ne $nat_ipaddr) {
+				if (defined($cfg{static_nat}) && $ev->{'nat_ipaddr'} &&
+				   (!defined($cfg{ignored_framed_ip}) || $nat_ipaddr !~ $cfg{ignored_framed_ip}) &&
+				   $ipaddr ne $nat_ipaddr) {
 				    skel_static_nat("del", $ipaddr, $nat_ipaddr);
 				    bh_route("del", $nat_ipaddr);
 				}
@@ -374,7 +376,9 @@ sub job_isg {
 
 			if (defined($nat_ipaddr)) {
 			    $oev->{'nat_ipaddr'} = ISG::ip2long($nat_ipaddr);
-			    if (defined($cfg{static_nat}) && $nat_ipaddr !~ /^192\.168/ && $exp_login ne $nat_ipaddr) {
+			    if (defined($cfg{static_nat}) &&
+			       (!defined($cfg{ignored_framed_ip}) || $nat_ipaddr !~ $cfg{ignored_framed_ip}) &&
+			       $exp_login ne $nat_ipaddr) {
 				skel_static_nat("add", $exp_login, $nat_ipaddr);
 				bh_route("add", $nat_ipaddr);
 			    }

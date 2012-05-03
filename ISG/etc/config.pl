@@ -32,6 +32,9 @@ $cfg{session_max_duration} = 86400;
 ### Enable static NAT using Framed-IP-Address attribute (comment to disable)
 #$cfg{static_nat} = 1;
 
+### Framed-IP-Address attribute values matching this regex will be ignored
+$cfg{ignored_framed_ip} = "^192\.168\.|^255\.255\.255\.25(5|4)\$";
+
 ### Check traffic classification file MD5 sum every N seconds. If sum was changed re-read this file.
 $cfg{tc_check_interval} = 300; ## Every 5 minutes
 
