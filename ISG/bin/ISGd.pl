@@ -739,6 +739,7 @@ sub send_radius_request_server {
 
     if (!$sock->send($p->pack)) {
 	do_log("err", "Unable to send RADIUS request to '" . $cfg{$conf_key}{$prio}{server} . "' ($!)");
+	destroy_radius_socket($sock, $wait_key);
 	return 0;
     }
 
