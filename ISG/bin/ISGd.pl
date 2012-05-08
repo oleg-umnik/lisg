@@ -891,7 +891,7 @@ sub reload_tc {
         seek(FP, 0, 0);
         while (<FP>) {
 	    chomp; s/^\s+//;
-	    if (/^([^#]\S+)\s+(.+)\/([0-9]{1,2})/) {
+	    if (/^([^#]\S*)\s+(.+)\/([0-9]{1,2})/) {
 		my $mask = ($3 ? ~((1<<(32 - $3))-1) : 0);
 		my $prefix = $2 . "/" . ISG::long2ip($mask);
 
