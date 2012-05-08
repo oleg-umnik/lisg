@@ -4,7 +4,10 @@
 #include <stdlib.h>
 #include <syslog.h>
 #include <getopt.h>
-#include <iptables.h>
+
+#define __EXPORTED_HEADERS__
+#include <xtables.h>
+
 #include <linux/netfilter_ipv4/ip_tables.h>
 
 struct ipt_ISG_info {
