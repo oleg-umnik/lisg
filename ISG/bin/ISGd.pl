@@ -307,7 +307,7 @@ sub job_isg {
 
 			$oev->{'cookie'} = substr($class, 0, 32) if (defined($class));
 
-			if (defined($rate_info[0])) {
+			if (scalar(@rate_info) == 4) {
 			    $oev->{'in_rate'}  = $rate_info[0];
 			    $oev->{'in_burst'} = $rate_info[1];
 			
@@ -550,7 +550,7 @@ sub job_coa {
 		}
 	    }
 
-	    if (defined($rate_info[0])) {
+	    if (scalar(@rate_info) == 4) {
 		$ev->{'in_rate'}  = $rate_info[0];
 		$ev->{'in_burst'} = $rate_info[1];
 
@@ -610,12 +610,16 @@ sub parse_account_qos {
     my $val = shift;
     my @ret;
 
-    if ($val =~ /^QU;(\d{1,});(\d{1,});D;(\d{1,});(\d{1,})$/) {
+    if ($val =~ /U;(\d{1,});(\d{1,})/) {
 	push(@ret, $1);
 	push(@ret, $2 * 8);
-	push(@ret, $3);
-	push(@ret, $4 * 8);
     }
+
+    if ($val =~ /D;(\d{1,});(\d{1,})/) {
+	push(@ret, $1);
+	push(@ret, $2 * 8);
+    }
+
     return @ret;
 }
 
