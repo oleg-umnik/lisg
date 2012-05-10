@@ -408,7 +408,7 @@ sub dumper {
     my $var = shift;
 
     use Data::Dumper;
-    print Dumper($var);
+    print STDERR Dumper($var);
 }
 
 sub isg_get_list {
