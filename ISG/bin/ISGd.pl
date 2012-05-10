@@ -534,9 +534,12 @@ sub job_coa {
 	    $ev->{'type'} = ISG::EVENT_SESS_CHANGE;
 	
 	    if ($rp->vsattributes($rad_dict->vendor_num("Cisco"))) {
-		foreach my $val (@{$rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info")}) {
-		    if ($val =~ /^Q/) {
-			@rate_info = parse_account_qos($val);
+		my $cisco_ai = $rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info");
+		if (defined($cisco_ai)) {
+		    foreach my $val (@{$cisco_ai}) {
+			if ($val =~ /^Q/) {
+			    @rate_info = parse_account_qos($val);
+			}
 		    }
 		}
 	    }
