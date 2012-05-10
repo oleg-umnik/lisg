@@ -45,10 +45,9 @@ $cfg{tc_check_interval} = 300; ## Every 5 minutes
 
 ### Begin ``TESTSERV'' service ###
 
-## Format for download and upload rates: "rate;normal burst" (in bit/s)
-## Use zero values (0;0) for no rate limit
-$cfg{srv}{TESTSERV}{download_rate} = "512000;256000";
-$cfg{srv}{TESTSERV}{upload_rate}   = "512000;256000";
+## Service download and upload rates in Cisco-Account-Info format (see README file)
+## Comment "rate_info" line below or use QD;0;0;U;0;0 as its value for no rate limit
+$cfg{srv}{TESTSERV}{rate_info} = "QD;512000;96000;U;512000;96000";
 
 ## Traffic classes list for this service (as defined in tc.conf file)
 $cfg{srv}{TESTSERV}{traffic_classes} = [ "OUR_LOCAL", "PEERING" ];

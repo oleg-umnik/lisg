@@ -113,16 +113,13 @@ you also may use lower case letters, I don't know why I'm using caps. :)
 Next define three service descriptions (see etc/config.pl for more
 parameters and some comments):
 
-    $cfg{srv}{"PRIVATE"}{download_rate}      = "50000000;75000000";
-    $cfg{srv}{"PRIVATE"}{upload_rate}        = "50000000;75000000";
-    $cfg{srv}{"PRIVATE"}{traffic_classes}    = [ "CLASS_A", "FIRST" ];
+    $cfg{srv}{"PRIVATE"}{rate_info} = "QD;50000000;1562500;U;50000000;1562500";
+    $cfg{srv}{"PRIVATE"}{traffic_classes} = [ "CLASS_A", "FIRST" ];
 
-    $cfg{srv}{"SSERVER"}{download_rate}      = "0;0";
-    $cfg{srv}{"SSERVER"}{upload_rate}        = "0;0";
-    $cfg{srv}{"SSERVER"}{traffic_classes}    = [ "SECOND" ];
+    $cfg{srv}{"SSERVER"}{rate_info} = "QD;0;0;U;0;0"; # or just comment this line
+    $cfg{srv}{"SSERVER"}{traffic_classes} = [ "SECOND" ];
 
-    $cfg{srv}{"INET-1MBIT"}{download_rate}   = "1000000;1500000";
-    $cfg{srv}{"INET-1MBIT"}{upload_rate}     = "1000000;1500000";
+    $cfg{srv}{"INET-1MBIT"}{rate_info} = "QD;1000000;187500;U;1000000;187500";
     $cfg{srv}{"INET-1MBIT"}{traffic_classes} = [ "THIRD" ];
 
 User 10.11.22.33 profile at RADIUS server must contain attributes:
@@ -141,8 +138,7 @@ meaning.
 
 You can also define additional service, INET-5MBIT for example:
 
-    $cfg{srv}{"INET-5MBIT"}{download_rate}   = "5000000;7500000";
-    $cfg{srv}{"INET-5MBIT"}{upload_rate}     = "5000000;7500000";
+    $cfg{srv}{"INET-5MBIT"}{rate_info} = "QD;5000000;937500;U;5000000;937500";
     $cfg{srv}{"INET-5MBIT"}{traffic_classes} = [ "THIRD" ];
 
 and add it to profile:

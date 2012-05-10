@@ -76,32 +76,23 @@ foreach my $srv_name (keys %{$cfg{srv}}) {
 	next;
     }
 
-    if (defined($cfg{srv}{$srv_name}{download_rate})) {
-	if ($cfg{srv}{$srv_name}{download_rate} =~ /^(\d{1,});(\d{1,})$/) {
-	    $cfg{srv}{$srv_name}{d_rate}  = $1;
-	    $cfg{srv}{$srv_name}{d_burst} = $2;
+    if (defined($cfg{srv}{$srv_name}{rate_info})) {
+	my @rate_info = parse_account_qos($cfg{srv}{$srv_name}{rate_info});
+	if (scalar(@rate_info) == 4) {
+	    $cfg{srv}{$srv_name}{u_rate}  = $rate_info[0];
+	    $cfg{srv}{$srv_name}{u_burst} = $rate_info[1];
+	    $cfg{srv}{$srv_name}{u_rate}  = $rate_info[2];
+	    $cfg{srv}{$srv_name}{u_burst} = $rate_info[3];
 	} else {
-	    do_log("err", "Bad download rate, throw service '$srv_name'");
-	    delete($cfg{srv}{$srv_name});
-	    next;
-	}
-    } else {
-	$cfg{srv}{$srv_name}{d_rate}  = 0;
-	$cfg{srv}{$srv_name}{d_burst} = 0;
-    }
-
-    if (defined($cfg{srv}{$srv_name}{upload_rate})) {
-	if ($cfg{srv}{$srv_name}{upload_rate} =~ /^(\d{1,});(\d{1,})$/) {
-	    $cfg{srv}{$srv_name}{u_rate}  = $1;
-	    $cfg{srv}{$srv_name}{u_burst} = $2;
-	} else {
-	    do_log("err", "Bad upload rate, throw service '$srv_name'");
+	    do_log("err", "Bad service rate specification, throw service '$srv_name'");
 	    delete($cfg{srv}{$srv_name});
 	    next;
 	}
     } else {
 	$cfg{srv}{$srv_name}{u_rate}  = 0;
 	$cfg{srv}{$srv_name}{u_burst} = 0;
+	$cfg{srv}{$srv_name}{d_rate}  = 0;
+	$cfg{srv}{$srv_name}{d_burst} = 0;
     }
 
     $cfg{srv}{$srv_name}{alive_interval} = $cfg{session_alive_interval} if (!defined($cfg{srv}{$srv_name}{alive_interval}));
