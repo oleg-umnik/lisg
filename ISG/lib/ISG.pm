@@ -14,7 +14,7 @@ use Digest::MD5;
 require Exporter;
 use vars qw(@ISA @EXPORT);
 @ISA = qw(Exporter);
-@EXPORT = qw(prepare_netlink_socket netlink_read add_socket_for_select isg_send_event isg_parse_event);
+@EXPORT = qw(prepare_netlink_socket netlink_read add_socket_for_select isg_send_event isg_parse_event isg_get_list);
 
 use constant AF_NETLINK 	=> 0x10;
 use constant ISG_NETLINK_MAIN 	=> 31;
@@ -409,6 +409,59 @@ sub dumper {
 
     use Data::Dumper;
     print Dumper($var);
+}
+
+sub isg_get_list {
+    my ($sk, $ev) = @_;
+    my @ret;
+
+    if (isg_send_event($sk, $ev) < 0) {
+	goto err;
+    }
+
+    my $tot_msg_sz = NL_HDR_LEN + IN_EVENT_MSG_LEN;
+    my $stop = 0; my $data;
+
+    while (!$stop) {
+	if (!(my $read_b = netlink_read($sk, \$data, 16384, 10))) {
+	    print STDERR "Recv from kernel: $!\n";
+	    goto err;
+	} else {
+	    if ($read_b < $tot_msg_sz) {
+		print STDERR "Packet too small ($read_b bytes)\n";
+		next;
+	    }
+
+	    if ($read_b % $tot_msg_sz) {
+		print STDERR "Incorrect packet length ($read_b bytes)\n";
+		next;
+	    }
+
+	    my $pkts_cnt = $read_b / $tot_msg_sz;
+
+	    for (my $i = 0; $i < $pkts_cnt; $i++) {
+		my $offset = $i * $tot_msg_sz;
+
+		$ev = isg_parse_event(substr($data, $offset, $tot_msg_sz));
+
+		if ($ev->{'type'} == ISG::EVENT_SESS_INFO) {
+		    if ($ev->{'ipaddr'} != 0) {
+			push(@ret, $ev);
+		    }
+
+		    if ($ev->{'nlhdr_type'} == ISG::NLMSG_DONE) {
+			$stop = 1;
+			last;
+		    }
+		}
+	    }
+	}
+    }
+
+    return \@ret;
+
+err:
+    return -1;
 }
 
 1;

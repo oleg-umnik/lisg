@@ -81,7 +81,7 @@ if ((@ARGV == 2 && $ARGV[0] eq "clear") || (@ARGV == 4 && $ARGV[0] eq "change_ra
     print "Unapproved sessions count:\t" . $unap ."\n";
 
 } elsif (!defined($ARGV[0]) || (@ARGV == 2 && $ARGV[0] eq "show_services")) {
-    my $data;
+    my $slist;
 
     if (defined($ARGV[0]) && $ARGV[0] eq "show_services") {
 	$ev->{'type'} = ISG::EVENT_SERV_GETLIST;
@@ -89,13 +89,10 @@ if ((@ARGV == 2 && $ARGV[0] eq "clear") || (@ARGV == 4 && $ARGV[0] eq "change_ra
 	$ev->{'type'} = ISG::EVENT_SESS_GETLIST;
     }
 
-    if (isg_send_event($sk, $ev) < 0) {
-	print STDERR "Unable to get sessions list: $!\n";
+    if (($slist = isg_get_list($sk, $ev)) < 0) {
+	print STDERR "Unable to get sessions/services list: $!\n";
 	goto out;
     }
-
-    my $tot_msg_sz = ISG::NL_HDR_LEN + ISG::IN_EVENT_MSG_LEN;
-    my $stop = 0;
 
     printf($PRINTF_TPL . "\n",
 	    "User IP-address",
@@ -111,50 +108,22 @@ if ((@ARGV == 2 && $ARGV[0] eq "clear") || (@ARGV == 4 && $ARGV[0] eq "change_ra
 	    "Flags"
     );
 
-    while (!$stop) {
-	if (!(my $read_b = netlink_read($sk, \$data, 16384, 10))) {
-	    print STDERR "Recv from kernel: $!\n";
-	    last;
-	} else {
-	    if ($read_b < $tot_msg_sz) {
-		print STDERR "Packet too small ($read_b bytes)\n";
-		next;
-	    }
-
-	    if ($read_b % $tot_msg_sz) {
-		print STDERR "Incorrect packet length ($read_b bytes)\n";
-		next;
-	    }
-
-	    my $pkts_cnt = $read_b / $tot_msg_sz;
-
-	    for (my $i = 0; $i < $pkts_cnt; $i++) {
-		my $offset = $i * $tot_msg_sz;
-
-		$ev = isg_parse_event(substr($data, $offset, $tot_msg_sz));
-
-		if ($ev->{'type'} == ISG::EVENT_SESS_INFO) {
-		    if ($ev->{'ipaddr'} != 0) {
-			printf($PRINTF_TPL . "\n",
-			    ISG::long2ip($ev->{'ipaddr'}),
-			    ISG::long2ip($ev->{'nat_ipaddr'}),
-			    "Virtual" . $ev->{'port_number'},
-			    $ev->{'session_id'},
-			    $ev->{'duration'},
-			    $ev->{'in_bytes'},
-			    $ev->{'out_bytes'},
-			    $ev->{'in_rate'},
-			    $ev->{'out_rate'},
-			    defined($ev->{'service_name'}) ? $ev->{'service_name'} : "Undefined",
-			    sprint_flags($ev),
-			);
-		    }
-
-		    if ($ev->{'nlhdr_type'} == ISG::NLMSG_DONE) {
-			$stop = 1;
-			last;
-		    }
-		}
+    foreach my $ev (@{$slist}) {
+	if ($ev->{'type'} == ISG::EVENT_SESS_INFO) {
+	    if ($ev->{'ipaddr'} != 0) {
+		printf($PRINTF_TPL . "\n",
+		    ISG::long2ip($ev->{'ipaddr'}),
+		    ISG::long2ip($ev->{'nat_ipaddr'}),
+		    "Virtual" . $ev->{'port_number'},
+		    $ev->{'session_id'},
+		    $ev->{'duration'},
+		    $ev->{'in_bytes'},
+		    $ev->{'out_bytes'},
+		    $ev->{'in_rate'},
+		    $ev->{'out_rate'},
+		    defined($ev->{'service_name'}) ? $ev->{'service_name'} : "Undefined",
+		    sprint_flags($ev),
+		);
 	    }
 	}
     }
