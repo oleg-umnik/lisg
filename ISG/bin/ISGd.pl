@@ -81,8 +81,8 @@ foreach my $srv_name (keys %{$cfg{srv}}) {
 	if (scalar(@rate_info) == 4) {
 	    $cfg{srv}{$srv_name}{u_rate}  = $rate_info[0];
 	    $cfg{srv}{$srv_name}{u_burst} = $rate_info[1];
-	    $cfg{srv}{$srv_name}{u_rate}  = $rate_info[2];
-	    $cfg{srv}{$srv_name}{u_burst} = $rate_info[3];
+	    $cfg{srv}{$srv_name}{d_rate}  = $rate_info[2];
+	    $cfg{srv}{$srv_name}{d_burst} = $rate_info[3];
 	} else {
 	    do_log("err", "Bad service rate specification, throw service '$srv_name'");
 	    delete($cfg{srv}{$srv_name});
@@ -268,9 +268,9 @@ sub job_isg {
 
 		    if ($rp->code eq "Access-Accept") {
 			my $oev;
-			my %srv_list; my %srv_to_krn; my %on_cls_list;
 			my @rate_info;
 
+			my %srv_list;
 			if ($rp->vsattributes($rad_dict->vendor_num("Cisco"))) {
 			    foreach my $val (@{$rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info")}) {
 				if ($val =~ /^(A|N)(.+)/) {
@@ -306,64 +306,7 @@ sub job_isg {
 			    $oev->{'out_burst'} = $rate_info[3];
 			}
 
-			foreach my $srv_name (keys %srv_list) {
-			    my $srv_status = $srv_list{$srv_name};
-
-			    if (!$cfg{srv}{$srv_name}) {
-				do_log("warning", "Service '$srv_name' is not defined in configuration, ignoring");
-				next;
-			    }
-
-			    $srv_to_krn{$srv_name}{hit} = 1;
-
-			    if ($srv_status eq "A") {
-				my $overlap = 0;
-				my $class_list = $cfg{srv}{$srv_name}{traffic_classes};
-				foreach my $cclass (@{$class_list}) {
-				    if ($on_cls_list{$cclass}) {
-					do_log("warning", "Service '$srv_name' has overlapping class with existing active service '$on_cls_list{$cclass}', ignoring auto-start");
-					$overlap = 1;
-					last;
-				    }
-				}
-
-				if (!$overlap) {
-				    $srv_to_krn{$srv_name}{auto} = 1;
-				    $on_cls_list{$_} = $srv_name foreach (@{$class_list});
-				}
-			    }
-			}
-
-			foreach my $key (keys %srv_to_krn) {
-			    my $sev;
-
-			    $sev->{'type'} = ISG::EVENT_SERV_APPLY;
-			    $sev->{'service_name'} = $key;
-			    $sev->{'port_number'} = $exp_ev->{'port_number'};
-
-			    $sev->{'out_rate'} = $cfg{srv}{$key}{d_rate};
-			    $sev->{'out_burst'} = $cfg{srv}{$key}{d_burst};
-
-			    $sev->{'in_rate'} = $cfg{srv}{$key}{u_rate};
-			    $sev->{'in_burst'} = $cfg{srv}{$key}{u_burst};
-
-			    $sev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{srv}{$key}{alive_interval};
-			    $sev->{'idle_timeout'} = $cfg{srv}{$key}{idle_timeout};
-			    $sev->{'max_duration'} = $cfg{srv}{$key}{max_duration};
-
-			    if (defined($srv_to_krn{$key}{auto})) {
-			        $sev->{'flags'} |= ISG::SERVICE_STATUS_ON;
-			    }
-
-			    if (defined($cfg{srv}{$key}{no_accounting})) {
-			        $sev->{'flags'} |= ISG::NO_ACCT;
-			    }
-
-			    if (isg_send_event($sk, $sev) < 0) {
-			        do_log("err", "Error sending EVENT_SERV_APPLY for service '$key': $!");
-			        next;
-			    }
-			}
+			apply_services(\%srv_list, $exp_ev->{'port_number'});
 
 			if (defined($nat_ipaddr)) {
 			    $oev->{'nat_ipaddr'} = ISG::ip2long($nat_ipaddr);
@@ -644,6 +587,73 @@ sub job_reload_tc {
 }
 
 ############################################################
+
+sub apply_services {
+    my ($srv_list, $port_number, $only_this) = @_;
+
+    my %srv_to_krn; my %on_cls_list;
+
+    foreach my $srv_name (keys %{$srv_list}) {
+	my $srv_status = $srv_list->{$srv_name};
+
+	if (!$cfg{srv}{$srv_name}) {
+	    do_log("warning", "Service '$srv_name' is not defined in configuration, ignoring");
+	    next;
+	}
+
+	$srv_to_krn{$srv_name}{hit} = 1;
+
+	if ($srv_status eq "A") {
+	    my $overlap = 0;
+	    my $class_list = $cfg{srv}{$srv_name}{traffic_classes};
+	    foreach my $cclass (@{$class_list}) {
+		if ($on_cls_list{$cclass}) {
+		    do_log("warning", "Service '$srv_name' has overlapping class with existing active service '$on_cls_list{$cclass}', ignoring auto-start");
+		    $overlap = 1;
+		    last;
+		}
+	    }
+
+	    if (!$overlap) {
+		$srv_to_krn{$srv_name}{auto} = 1;
+		$on_cls_list{$_} = $srv_name foreach (@{$class_list});
+	    }
+	}
+    }
+
+    foreach my $key (keys %srv_to_krn) {
+	my $sev;
+
+	next if (defined($only_this) && $key ne $only_this);
+	
+	$sev->{'type'} = ISG::EVENT_SERV_APPLY;
+	$sev->{'service_name'} = $key;
+	$sev->{'port_number'} = $port_number;
+
+	$sev->{'out_rate'} = $cfg{srv}{$key}{d_rate};
+	$sev->{'out_burst'} = $cfg{srv}{$key}{d_burst};
+
+	$sev->{'in_rate'} = $cfg{srv}{$key}{u_rate};
+	$sev->{'in_burst'} = $cfg{srv}{$key}{u_burst};
+
+	$sev->{'alive_interval'} = $cfg{srv}{$key}{alive_interval};
+	$sev->{'idle_timeout'} = $cfg{srv}{$key}{idle_timeout};
+	$sev->{'max_duration'} = $cfg{srv}{$key}{max_duration};
+
+	if (defined($srv_to_krn{$key}{auto})) {
+	    $sev->{'flags'} |= ISG::SERVICE_STATUS_ON;
+	}
+
+	if (defined($cfg{srv}{$key}{no_accounting})) {
+	    $sev->{'flags'} |= ISG::NO_ACCT;
+	}
+
+	if (isg_send_event($sk, $sev) < 0) {
+	    do_log("err", "Error sending EVENT_SERV_APPLY for service '$key': $!");
+	    next;
+	}
+    }
+}
 
 sub parse_account_qos {
     my $val = shift;
