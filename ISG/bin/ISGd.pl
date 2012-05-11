@@ -588,10 +588,10 @@ sub job_reload_tc {
 
 ############################################################
 
-sub apply_services {
-    my ($srv_list, $port_number, $only_this) = @_;
+sub sanitize_services_list {
+    my $srv_list = shift;
 
-    my %srv_to_krn; my %on_cls_list;
+    my %on_cls_list; my %ret;
 
     foreach my $srv_name (keys %{$srv_list}) {
 	my $srv_status = $srv_list->{$srv_name};
@@ -601,7 +601,7 @@ sub apply_services {
 	    next;
 	}
 
-	$srv_to_krn{$srv_name}{hit} = 1;
+	$ret{$srv_name} = "N";
 
 	if ($srv_status eq "A") {
 	    my $overlap = 0;
@@ -615,44 +615,40 @@ sub apply_services {
 	    }
 
 	    if (!$overlap) {
-		$srv_to_krn{$srv_name}{auto} = 1;
+		$ret{$srv_name} = "A";
 		$on_cls_list{$_} = $srv_name foreach (@{$class_list});
 	    }
 	}
     }
+    return %ret;
+}
 
-    foreach my $key (keys %srv_to_krn) {
-	my $sev;
 
-	next if (defined($only_this) && $key ne $only_this);
-	
-	$sev->{'type'} = ISG::EVENT_SERV_APPLY;
-	$sev->{'service_name'} = $key;
-	$sev->{'port_number'} = $port_number;
+sub prepare_service_event {
+    my ($srv_name, $port_number, $type, $flags) = @_;
+    my $sev;
 
-	$sev->{'out_rate'} = $cfg{srv}{$key}{d_rate};
-	$sev->{'out_burst'} = $cfg{srv}{$key}{d_burst};
+    $sev->{'type'} = $type;
+    $sev->{'service_name'} = $srv_name;
+    $sev->{'port_number'} = $port_number;
 
-	$sev->{'in_rate'} = $cfg{srv}{$key}{u_rate};
-	$sev->{'in_burst'} = $cfg{srv}{$key}{u_burst};
+    $sev->{'out_rate'} = $cfg{srv}{$srv_name}{d_rate};
+    $sev->{'out_burst'} = $cfg{srv}{$srv_name}{d_burst};
 
-	$sev->{'alive_interval'} = $cfg{srv}{$key}{alive_interval};
-	$sev->{'idle_timeout'} = $cfg{srv}{$key}{idle_timeout};
-	$sev->{'max_duration'} = $cfg{srv}{$key}{max_duration};
+    $sev->{'in_rate'} = $cfg{srv}{$srv_name}{u_rate};
+    $sev->{'in_burst'} = $cfg{srv}{$srv_name}{u_burst};
 
-	if (defined($srv_to_krn{$key}{auto})) {
-	    $sev->{'flags'} |= ISG::SERVICE_STATUS_ON;
-	}
+    $sev->{'alive_interval'} = $cfg{srv}{$srv_name}{alive_interval};
+    $sev->{'idle_timeout'} = $cfg{srv}{$srv_name}{idle_timeout};
+    $sev->{'max_duration'} = $cfg{srv}{$srv_name}{max_duration};
 
-	if (defined($cfg{srv}{$key}{no_accounting})) {
-	    $sev->{'flags'} |= ISG::NO_ACCT;
-	}
+    $sev->{'flags'} = $flags;
 
-	if (isg_send_event($sk, $sev) < 0) {
-	    do_log("err", "Error sending EVENT_SERV_APPLY for service '$key': $!");
-	    next;
-	}
+    if (defined($cfg{srv}{$srv_name}{no_accounting})) {
+        $sev->{'flags'} |= ISG::NO_ACCT;
     }
+
+    return $sev;
 }
 
 sub parse_account_qos {
