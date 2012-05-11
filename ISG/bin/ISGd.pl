@@ -272,14 +272,18 @@ sub job_isg {
 
 			my %srv_list;
 			if ($rp->vsattributes($rad_dict->vendor_num("Cisco"))) {
-			    foreach my $val (@{$rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info")}) {
-				if ($val =~ /^(A|N)(.+)/) {
-				    $srv_list{$2} = $1;
-				} elsif ($val =~ /^Q/) {
-				    @rate_info = parse_account_qos($val);
-				} else {
-				    do_log("err", "Unknown attribute Cisco-Account-Info = $val, ignoring");
+			    my $cisco_ai = $rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info");
+			    if (defined($cisco_ai)) {
+				foreach my $val (@{$cisco_ai}) {
+				    if ($val =~ /^(A|N)(.+)/) {
+					$srv_list{$2} = $1;
+				    } elsif ($val =~ /^Q/) {
+					@rate_info = parse_account_qos($val);
+				    } else {
+				        do_log("err", "Unknown attribute Cisco-Account-Info = $val, ignoring");
+				    }
 				}
+				%srv_list = sanitize_services_list(\%srv_list);
 			    }
 			}
 
@@ -306,7 +310,15 @@ sub job_isg {
 			    $oev->{'out_burst'} = $rate_info[3];
 			}
 
-			apply_services(\%srv_list, $exp_ev->{'port_number'});
+			foreach my $srv_name (keys %srv_list) {
+			    my $flags = $srv_list{$srv_name} eq "A" ? ISG::SERVICE_STATUS_ON : 0;
+			    my $sev = prepare_service_event($srv_name, $exp_ev->{'port_number'}, ISG::EVENT_SERV_APPLY, $flags);
+			    ISG::dumper($sev);
+			    print "> $sev <\n";
+			    if (isg_send_event($sk, $sev) < 0) {
+				do_log("err", "Error sending EVENT_SERV_APPLY for service '$srv_name': $!");
+			    }
+			}
 
 			if (defined($nat_ipaddr)) {
 			    $oev->{'nat_ipaddr'} = ISG::ip2long($nat_ipaddr);
