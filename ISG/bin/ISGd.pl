@@ -491,14 +491,15 @@ sub job_coa {
 	    next;
 	}
 
+	$out_code = $nak_code;
+
 	$nas_ident  = $rp->attr("NAS-Identifier");
 	$nas_ipaddr = $rp->attr("NAS-IP-Address");
 
 	if ((!defined($nas_ident) && !defined($nas_ipaddr)) ||
 	    (defined($nas_ident) && $nas_id ne $nas_ident) ||
 	    (defined($nas_ipaddr) && $nas_ip ne $nas_ipaddr)) {
-	    $out_code = $nak_code;
-	    $out_err  = "NAS-Identification-Mismatch";
+	    $out_err = "NAS-Identification-Mismatch";
 
 	    do_log("err", "NAS identification error, can't process CoA request");
 	    goto send_rp;
@@ -519,8 +520,7 @@ sub job_coa {
 	} elsif ($username) {
 	    $ev->{'ipaddr'} = ISG::ip2long($username);
 	} else {
-	    $out_code = $nak_code;
-	    $out_err  = "Missing-Attribute";
+	    $out_err = "Missing-Attribute";
 
 	    do_log("err", "Can't process request: CoA need User-Name, Acct-Session-Id, or NAS-Port attribute");
 	    goto send_rp;
@@ -530,9 +530,6 @@ sub job_coa {
 	    $ev->{'type'} = ISG::EVENT_SESS_CLEAR;
 	} else {
 	    my @rate_info;
-	
-	    $ev->{'type'} = ISG::EVENT_SESS_CHANGE;
-	
 	    if ($rp->vsattributes($rad_dict->vendor_num("Cisco"))) {
 		my $cisco_ai = $rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-Account-Info");
 		if (defined($cisco_ai)) {
@@ -540,6 +537,53 @@ sub job_coa {
 			if ($val =~ /^Q/) {
 			    @rate_info = parse_account_qos($val);
 			}
+		    }
+		}
+		
+		my $cisco_ap = $rp->vsattr($rad_dict->vendor_num("Cisco"), "Cisco-AVPair");
+		if (defined($cisco_ap)) {
+		    my $slist;
+		    my %pars;
+		
+		    foreach my $val (@{$cisco_ap}) {
+			next if ($val !~ /^subscriber:(.*)=(.*)/);
+			$pars{$1} = $2;
+		    }
+
+		    if (!defined($pars{"command"})) {
+			$out_err = "Missing-Attribute";
+			goto send_rp;
+		    }
+
+		    if ($pars{"command"} =~ /(a|dea)ctivate-service/) {
+			$ev->{'type'} = ISG::EVENT_SERV_GETLIST;
+		
+			if (($slist = isg_get_list($sockk, $ev)) < 0) {
+			    do_log("err", "Unable to get sessions/services list: $!");
+			    next;
+			}
+		
+			my %srv_list;
+			foreach my $cev (@{$slist}) {
+			    $srv_list{$cev->{'service_name'}} = $cev->{'flags'} & ISG::SERVICE_STATUS_ON ? "A" : "N";
+			}
+			
+			if (!defined($pars{"service-name"}) || !defined($srv_list{$pars{"service-name"}})) {
+			    do_log("err", "Unable to find '" . $pars{"service-name"} . "' service");
+			    $out_err = "Session-Context-Not-Found";
+			    goto send_rp;
+			}
+			
+			if ($pars{"command"} eq "activate-service") {
+			    $srv_list{$pars{"service-name"}} = "A";
+			} else {
+			    $srv_list{$pars{"service-name"}} = "N";
+			}
+			
+		    } else {
+			do_log("err", "Unknown command '" . $pars{"command"} . "'");
+			$out_err = "Unsupported-Attribute";
+			goto send_rp;
 		    }
 		}
 	    }
@@ -551,6 +595,8 @@ sub job_coa {
 		$ev->{'out_rate'}  = $rate_info[2];
 		$ev->{'out_burst'} = $rate_info[3];
 	    }
+
+	    $ev->{'type'} = ISG::EVENT_SESS_CHANGE;
 	}
 
 	if (isg_send_event($sockk, $ev, \%ev_in) < 0) {
@@ -559,7 +605,6 @@ sub job_coa {
 	}
 	
 	if ($ev_in{'type'} != ISG::EVENT_KERNEL_ACK) {
-	    $out_code = $nak_code;
 	    $out_err  = "Session-Context-Not-Found";
 	} else {
 	    $out_code = $ack_code;
