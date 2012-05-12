@@ -43,8 +43,8 @@ MODULE_PARM_DESC(nehash_key_len, "Network hash key length (in bits)");
 
 /* Don't touch parameters below (unless you know what you're doing) */
 
-static unsigned int tg_action = XT_CONTINUE;
-module_param(tg_action, uint, 0400);
+static unsigned int tg_permit_action = XT_CONTINUE;
+module_param(tg_permit_action, uint, 0400);
 
 static unsigned int session_check_interval = 10;
 module_param(session_check_interval, uint, 0400);
@@ -95,7 +95,7 @@ static struct ctl_table isg_net_table[] = {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
 	.ctl_name	= CTL_UNNUMBERED,
 #endif
-	.procname	= "tg_action",
+	.procname	= "tg_permit_action",
 	.maxlen		= sizeof(int),
 	.mode		= 0644,
 	.proc_handler	= proc_dointvec
@@ -1100,7 +1100,7 @@ found:
 
 ACCEPT:
     spin_unlock_bh(&isg_lock);
-    return isg_net->tg_action;
+    return isg_net->tg_permit_action;
 
 DROP:
     spin_unlock_bh(&isg_lock);
@@ -1120,7 +1120,7 @@ static int isg_initialize(struct isg_net *isg_net) {
 #endif
 
     isg_net->approve_retry_interval = approve_retry_interval;
-    isg_net->tg_action = tg_action;
+    isg_net->tg_permit_action = tg_permit_action;
     isg_net->pass_outgoing = pass_outgoing;
 
     isg_net->hash = vmalloc(hsize);
@@ -1225,7 +1225,7 @@ static int __net_init isg_net_init(struct net *net) {
     }
 
     table[0].data = &isg_net->approve_retry_interval;
-    table[1].data = &isg_net->tg_action;
+    table[1].data = &isg_net->tg_permit_action;
     table[2].data = &isg_net->pass_outgoing;
 
     isg_net->sysctl_hdr = register_net_sysctl_table(net, net_ipt_isg_ctl_path, table);
