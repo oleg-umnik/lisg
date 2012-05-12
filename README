@@ -1,6 +1,6 @@
-----------------------------------
-* Linux ISG :: lISG-0.11.3-alpha *
-----------------------------------
+-------------
+* Linux ISG *
+-------------
 
 This is the first public release. Nevertheless "Linux ISG" is working
 for half a year under a heavy load (> 250K pps, > 5K sessions, all
@@ -150,7 +150,7 @@ and add it to profile:
 
 Please note "N" letter before service name. This means that service will
 not be active by default and can be manually activated when needed using
-CoA (CoA interface for services is not impemented in 0.11).
+CoA.
 
 ----------------------------------
 * Traffic classification support *
@@ -208,7 +208,8 @@ Attribute:	Cisco-Account-Info = QU;cir;normal burst;D;cir;normal burst
 Description:	Traffic rate policing for the session upstream and downstream
 		directions. cir is given in bit/s. burst in bytes. This
 		attribute has no effect if there is at least one service
-		applied for session.
+		applied for session. This attribute is also can be used in CoA
+		requests.
 		Cisco recommended value for burst = cir / 8 * 1.5
 Example:	Cisco-Account-Info = QU;512000;96000;D;512000;96000
 
@@ -229,8 +230,7 @@ Example:	Cisco-Account-Info = AINTERNET
 Attribute:	Cisco-Account-Info = N<service name>
 Description:	The same as A<service name> but service will be created with off
 		status, so the traffic that falls into this service classes will
-		be dropped. Service can be enabled later using CoA interface (but
-		CoA interface for services is not impemented in 0.11).
+		be dropped. Service can be enabled later using CoA interface.
 Example:	Cisco-Account-Info = NLOCAL
 
 -----------------------
@@ -247,7 +247,28 @@ attributes to identify session:
 In "Change of Authorization" messages you can currently change only
 this attributes of session:
 
-    * Class (the attribute is using in lISG for rate policing)
+    * Service-Account-Info (for main session policing only)
+
+---------------------------------
+* Services management using CoA *
+---------------------------------
+lISG is supporting services activation or deactivation using CoA
+interface. Here is the example attributes for service activation:
+
+    Cisco-AVPair   = "subscriber:command=activate-service"
+    Cisco-AVPair  += "subscriber:service-name=SOME_SERVICE"
+    User-Name      = 5.5.5.5
+    NAS-Identifier = 127.0.0.1
+
+This attributes will activate service "SOME_SERVICE" for user with
+IP-address 5.5.5.5 on NAS identified by 127.0.0.1. The last two
+attributes is used to identify user session.
+
+You can also use
+
+    Cisco-AVPair = "subscriber:command=deactivate-service"
+
+attribute and value to deactivate some service.
 
 -------------------
 * Tips and Tricks *
