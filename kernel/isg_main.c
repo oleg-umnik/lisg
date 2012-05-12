@@ -1114,11 +1114,19 @@ found:
 
 ACCEPT:
     spin_unlock_bh(&isg_lock);
-    return isg_net->tg_permit_action;
+    if (!isg_net->tg_permit_action) {
+	return IPT_CONTINUE;
+    } else {
+	return NF_ACCEPT;
+    }
 
 DROP:
     spin_unlock_bh(&isg_lock);
-    return isg_net->tg_deny_action;
+    if (!isg_net->tg_deny_action) {
+	return NF_DROP;
+    } else {
+	return IPT_CONTINUE;
+    }
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
