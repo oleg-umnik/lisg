@@ -41,13 +41,15 @@ unsigned int nehash_key_len = 20;
 module_param(nehash_key_len, uint, 0400);
 MODULE_PARM_DESC(nehash_key_len, "Network hash key length (in bits)");
 
-/* Don't touch parameters below (unless you know what you're doing) */
-
-static unsigned int tg_permit_action = XT_CONTINUE;
+static unsigned int tg_permit_action = 0;
 module_param(tg_permit_action, uint, 0400);
+MODULE_PARM_DESC(tg_permit_action, "Xtables action for permitted traffic (0 - CONTINUE (default), 1 - ACCEPT)");
 
-static unsigned int tg_deny_action = NF_DROP;
+static unsigned int tg_deny_action = 0;
 module_param(tg_deny_action, uint, 0400);
+MODULE_PARM_DESC(tg_deny_action, "Xtables action for denied traffic (0 - DROP (default), 1 - CONTINUE)");
+
+/* Don't touch parameters below (unless you know what you're doing) */
 
 static unsigned int session_check_interval = 10;
 module_param(session_check_interval, uint, 0400);

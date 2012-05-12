@@ -204,7 +204,8 @@ struct isg_net {
     struct ctl_table_header *sysctl_hdr;
 
     unsigned int approve_retry_interval;
-    unsigned int tg_action;
+    unsigned int tg_permit_action;
+    unsigned int tg_deny_action;
     unsigned int pass_outgoing;
 };
 
