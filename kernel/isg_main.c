@@ -46,6 +46,9 @@ MODULE_PARM_DESC(nehash_key_len, "Network hash key length (in bits)");
 static unsigned int tg_permit_action = XT_CONTINUE;
 module_param(tg_permit_action, uint, 0400);
 
+static unsigned int tg_deny_action = NF_DROP;
+module_param(tg_deny_action, uint, 0400);
+
 static unsigned int session_check_interval = 10;
 module_param(session_check_interval, uint, 0400);
 
@@ -96,6 +99,15 @@ static struct ctl_table isg_net_table[] = {
 	.ctl_name	= CTL_UNNUMBERED,
 #endif
 	.procname	= "tg_permit_action",
+	.maxlen		= sizeof(int),
+	.mode		= 0644,
+	.proc_handler	= proc_dointvec
+    },
+    {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
+	.ctl_name	= CTL_UNNUMBERED,
+#endif
+	.procname	= "tg_deny_action",
 	.maxlen		= sizeof(int),
 	.mode		= 0644,
 	.proc_handler	= proc_dointvec
@@ -1104,7 +1116,7 @@ ACCEPT:
 
 DROP:
     spin_unlock_bh(&isg_lock);
-    return NF_DROP;
+    return isg_net->tg_deny_action;
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
@@ -1121,6 +1133,7 @@ static int isg_initialize(struct isg_net *isg_net) {
 
     isg_net->approve_retry_interval = approve_retry_interval;
     isg_net->tg_permit_action = tg_permit_action;
+    isg_net->tg_deny_action = tg_deny_action;
     isg_net->pass_outgoing = pass_outgoing;
 
     isg_net->hash = vmalloc(hsize);
@@ -1226,7 +1239,8 @@ static int __net_init isg_net_init(struct net *net) {
 
     table[0].data = &isg_net->approve_retry_interval;
     table[1].data = &isg_net->tg_permit_action;
-    table[2].data = &isg_net->pass_outgoing;
+    table[2].data = &isg_net->tg_deny_action;
+    table[3].data = &isg_net->pass_outgoing;
 
     isg_net->sysctl_hdr = register_net_sysctl_table(net, net_ipt_isg_ctl_path, table);
     if (isg_net->sysctl_hdr == NULL) {
