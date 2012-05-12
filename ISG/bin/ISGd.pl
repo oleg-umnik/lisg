@@ -311,10 +311,12 @@ sub job_isg {
 			}
 
 			foreach my $srv_name (keys %srv_list) {
-			    my $flags = $srv_list{$srv_name} eq "A" ? ISG::SERVICE_STATUS_ON : 0;
-			    my $sev = prepare_service_event($srv_name, $exp_ev->{'port_number'}, ISG::EVENT_SERV_APPLY, $flags);
-			    ISG::dumper($sev);
-			    print "> $sev <\n";
+			    my $sev = prepare_service_event($srv_name);
+
+			    $sev->{'type'} = ISG::EVENT_SERV_APPLY;
+			    $sev->{'port_number'} = $exp_ev->{'port_number'};
+			    $sev->{'flags'} = $srv_list{$srv_name} eq "A" ? ISG::SERVICE_STATUS_ON : 0;
+
 			    if (isg_send_event($sk, $sev) < 0) {
 				do_log("err", "Error sending EVENT_SERV_APPLY for service '$srv_name': $!");
 			    }
@@ -511,6 +513,13 @@ sub job_coa {
 		    }
 
 		    if ($pars{"command"} =~ /(a|dea)ctivate-service/) {
+			my $session_id;
+
+			if (!defined($pars{"service-name"})) {
+			    $out_err = "Missing-Attribute";
+			    goto send_rp;
+			}
+
 			$ev->{'type'} = ISG::EVENT_SERV_GETLIST;
 		
 			if (($slist = isg_get_list($sockk, $ev)) < 0) {
@@ -521,20 +530,41 @@ sub job_coa {
 			my %srv_list;
 			foreach my $cev (@{$slist}) {
 			    $srv_list{$cev->{'service_name'}} = $cev->{'flags'} & ISG::SERVICE_STATUS_ON ? "A" : "N";
-			}
+			    if ($pars{"service-name"} eq $cev->{'service_name'}) {
+				$session_id = ISG::hex_session_id_to_llu($cev->{'session_id'});
+			    }
 			
-			if (!defined($pars{"service-name"}) || !defined($srv_list{$pars{"service-name"}})) {
+			}
+
+			if (!defined($session_id)) {
 			    do_log("err", "Unable to find '" . $pars{"service-name"} . "' service");
 			    $out_err = "Session-Context-Not-Found";
 			    goto send_rp;
 			}
-			
+
+			my $flags = ISG::IS_SERVICE | ISG::SERVICE_STATUS_ON;
+			my $flags_op = 0;
+
 			if ($pars{"command"} eq "activate-service") {
 			    $srv_list{$pars{"service-name"}} = "A";
+			    $flags_op = ISG::FLAG_OP_SET;
 			} else {
 			    $srv_list{$pars{"service-name"}} = "N";
+			    $flags_op = ISG::FLAG_OP_UNSET;
 			}
 			
+			%srv_list = sanitize_services_list(\%srv_list);
+
+			if ($flags_op == ISG::FLAG_OP_SET && $srv_list{$pars{"service-name"}} eq "N") {
+			    goto send_rp;
+			}
+
+			$ev = prepare_service_event($pars{"service-name"});
+
+			$ev->{'session_id'} = $session_id;
+			$ev->{'flags'} = $flags;
+			$ev->{'flags_op'} = $flags_op;
+
 		    } else {
 			do_log("err", "Unknown command '" . $pars{"command"} . "'");
 			$out_err = "Unsupported-Attribute";
@@ -620,8 +650,9 @@ sub sanitize_services_list {
 	    my $class_list = $cfg{srv}{$srv_name}{traffic_classes};
 	    foreach my $cclass (@{$class_list}) {
 		if ($on_cls_list{$cclass}) {
-		    do_log("warning", "Service '$srv_name' has overlapping class with existing active service '$on_cls_list{$cclass}', ignoring auto-start");
+		    do_log("warning", "Service '$srv_name' has overlapping class with also active service '$on_cls_list{$cclass}', ignoring auto-start on both");
 		    $overlap = 1;
+		    $ret{$on_cls_list{$cclass}} = $ret{$srv_name} = "N";
 		    last;
 		}
 	    }
@@ -632,17 +663,14 @@ sub sanitize_services_list {
 	    }
 	}
     }
+
     return %ret;
 }
 
-
 sub prepare_service_event {
-    my ($srv_name, $port_number, $type, $flags) = @_;
-    my $sev;
+    my ($srv_name, $sev) = @_;
 
-    $sev->{'type'} = $type;
     $sev->{'service_name'} = $srv_name;
-    $sev->{'port_number'} = $port_number;
 
     $sev->{'out_rate'} = $cfg{srv}{$srv_name}{d_rate};
     $sev->{'out_burst'} = $cfg{srv}{$srv_name}{d_burst};
@@ -654,10 +682,8 @@ sub prepare_service_event {
     $sev->{'idle_timeout'} = $cfg{srv}{$srv_name}{idle_timeout};
     $sev->{'max_duration'} = $cfg{srv}{$srv_name}{max_duration};
 
-    $sev->{'flags'} = $flags;
-
     if (defined($cfg{srv}{$srv_name}{no_accounting})) {
-        $sev->{'flags'} |= ISG::NO_ACCT;
+        $sev->{'flags'} = ISG::NO_ACCT;
     }
 
     return $sev;
