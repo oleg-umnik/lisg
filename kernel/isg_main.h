@@ -2,6 +2,7 @@
 #define _IP_ISG_H
 
 #include <linux/version.h>
+#include <linux/module.h>
 #include <net/ip.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter_ipv4/ip_tables.h>

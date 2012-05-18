@@ -1115,7 +1115,7 @@ found:
 ACCEPT:
     spin_unlock_bh(&isg_lock);
     if (!isg_net->tg_permit_action) {
-	return IPT_CONTINUE;
+	return XT_CONTINUE;
     } else {
 	return NF_ACCEPT;
     }
@@ -1125,7 +1125,7 @@ DROP:
     if (!isg_net->tg_deny_action) {
 	return NF_DROP;
     } else {
-	return IPT_CONTINUE;
+	return XT_CONTINUE;
     }
 }
 
