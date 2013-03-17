@@ -121,7 +121,7 @@ if ((@ARGV == 2 && $ARGV[0] eq "clear") || (@ARGV == 4 && $ARGV[0] eq "change_ra
 		    $ev->{'out_bytes'},
 		    $ev->{'in_rate'},
 		    $ev->{'out_rate'},
-		    defined($ev->{'service_name'}) ? $ev->{'service_name'} : "Undefined",
+		    defined($ev->{'service_name'}) ? $ev->{'service_name'} : "Main session",
 		    sprint_flags($ev),
 		);
 	    }
