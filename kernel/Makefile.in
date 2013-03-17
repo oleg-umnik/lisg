@@ -16,6 +16,8 @@ all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 	gcc -O2 -Wall -Wunused -I$(KDIR)/include -I$(IPTSRC)/include -DIPTABLES_VERSION=\"$(IPTABLES_VERSION)\" $(XT_NEWSTYLE) -fPIC -o libipt_ISG_sh.o -c libipt_ISG.c
 	gcc -shared -o libipt_ISG.so libipt_ISG_sh.o
+	gcc -O2 -Wall -Wunused -I$(KDIR)/include -I$(IPTSRC)/include -DIPTABLES_VERSION=\"$(IPTABLES_VERSION)\" $(XT_NEWSTYLE) -fPIC -o libipt_isg_sh.o -c libipt_isg.c
+	gcc -shared -o libipt_isg.so libipt_isg_sh.o
 kinstall:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
 clean:

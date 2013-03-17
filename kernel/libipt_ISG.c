@@ -87,7 +87,7 @@ static void save(const void *ip, const struct xt_entry_target *target) {
     struct ipt_ISG_info *isg = (struct ipt_ISG_info *)target->data;
 
     if (isg->flags & INIT_SESSION) {
-	printf("--session-init ");
+	printf(" --session-init ");
 
 	if (isg->flags & INIT_BY_SRC) {
 	    printf("--init-mode src");

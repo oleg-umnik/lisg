@@ -81,6 +81,10 @@ struct ipt_ISG_info {
     u_int8_t flags;
 };
 
+struct ipt_ISG_mt_info {
+    u_int8_t service_name[32];
+};
+
 struct isg_session_info {
     u_int64_t id;
     u_int8_t cookie[32];

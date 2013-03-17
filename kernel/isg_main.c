@@ -13,6 +13,8 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Oleg A. Arkhangelsky <sysoleg@yandex.ru>");
 MODULE_DESCRIPTION("Xtables: Linux ISG Access Control");
+MODULE_ALIAS("ipt_ISG");
+MODULE_ALIAS("ipt_isg");
 
 static inline struct isg_session *isg_find_session(struct isg_net *, struct isg_in_event *);
 static int isg_start_session(struct isg_session *);
@@ -915,6 +917,111 @@ kfree:
     goto unlock;
 }
 
+static bool
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
+isg_mt(struct sk_buff **pskb,
+	unsigned int hooknum,
+	const struct net_device *in,
+	const struct net_device *out,
+	const void *targinfo,
+	void *userinfo)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17)
+isg_mt(struct sk_buff **pskb,
+	const struct net_device *in,
+	const struct net_device *out,
+	unsigned int hooknum,
+	const void *targinfo,
+	void *userinfo)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
+isg_mt(struct sk_buff **pskb,
+	const struct net_device *in,
+	const struct net_device *out,
+	unsigned int hooknum,
+	const struct xt_target *target,
+	const void *targinfo,
+	void *userinfo)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
+isg_mt(struct sk_buff **pskb,
+	const struct net_device *in,
+	const struct net_device *out,
+	unsigned int hooknum,
+	const struct xt_target *target,
+	const void *targinfo)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
+isg_mt(const struct sk_buff *skb,
+	const struct net_device *in,
+	const struct net_device *out,
+	unsigned int hooknum,
+	const struct xt_target *target,
+	const void *targinfo)
+#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28) */
+isg_mt(const struct sk_buff *skb,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
+	struct xt_target_param *par)
+#else
+	struct xt_action_param *par)
+#endif
+#endif
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
+    const struct ipt_ISG_mt_info *iinfo = targinfo;
+#else
+    const struct ipt_ISG_mt_info *iinfo = par->targinfo;
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
+    struct sk_buff *skb = *pskb;
+#endif
+
+    struct iphdr *iph, _iph;
+    struct isg_session *is, *isrv;
+    struct isg_net *isg_net;
+
+    iph = skb_header_pointer(skb, 0, sizeof(_iph), &_iph);
+    if (iph == NULL) {
+	return 0;
+    }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+    isg_net = isg_pernet(dev_net((par->in != NULL) ? par->in : par->out));
+#else
+    isg_net = isg_default_net;
+#endif
+
+    is = isg_lookup_session(isg_net, iph->saddr);
+
+    if (is && !hlist_empty(&is->srv_head)) {
+	/* This session is having sub-sessions, try to classify */
+        struct hlist_node *n;
+        struct nehash_entry *ne;
+	struct traffic_class **tc_list;
+
+	ne = nehash_lookup(is->isg_net, iph->saddr);
+	if (ne == NULL) {
+	    return 0;
+	}
+
+        hlist_for_each_entry(isrv, n, &is->srv_head, srv_node) { /* For each sub-session (service) */
+	    int i;
+
+            if (!(isrv->info.flags & ISG_SERVICE_STATUS_ON)) {
+		continue;
+	    }
+
+	    tc_list = isrv->sdesc->tcs;
+
+	    for (i = 0; *tc_list && i < MAX_SD_CLASSES; i++, tc_list++) { /* For each service description's class */
+		struct traffic_class *tc = *tc_list;
+		
+		if (ne->tc == tc && !strcmp(isrv->sdesc->name, iinfo->service_name)) {
+		    return 1;
+		}
+	    }
+        }
+    }
+
+    return 0;
+}
+
 static unsigned int
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 isg_tg(struct sk_buff **pskb,
@@ -1309,6 +1416,18 @@ static struct xt_target isg_tg_reg __read_mostly = {
     .me			= THIS_MODULE,
 };
 
+static struct xt_match isg_mt_reg __read_mostly = {
+    .name		= "isg",
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28)
+    .family		= NFPROTO_IPV4,
+#else
+    .family		= AF_INET,
+#endif
+    .match		= isg_mt,
+    .matchsize		= sizeof(struct ipt_ISG_mt_info),
+    .me			= THIS_MODULE,
+};
+
 static int __init isg_tg_init(void) {
     int err;
 
@@ -1340,12 +1459,24 @@ static int __init isg_tg_init(void) {
 
     printk(KERN_INFO "ipt_ISG: Loaded (built on %s)\n", _BUILD_DATE);
 
-    return xt_register_target(&isg_tg_reg);
+    err = xt_register_target(&isg_tg_reg);
+    if (err < 0) {
+	return err;
+    }
+
+    err = xt_register_match(&isg_mt_reg);
+    if (err < 0) {
+	xt_unregister_target(&isg_tg_reg);
+	return err;
+    }
+
+    return 0;
 }
 
 static void __exit isg_tg_exit(void) {
     module_exiting = 1;
 
+    xt_unregister_match(&isg_mt_reg);
     xt_unregister_target(&isg_tg_reg);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
