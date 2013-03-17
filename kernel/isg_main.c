@@ -29,10 +29,6 @@ static void isg_session_timeout(unsigned long);
 static void isg_sweep_service_desc_tc(struct isg_net *);
 static void isg_send_services_list(struct isg_net *, pid_t, struct isg_in_event *);
 
-static unsigned int approve_retry_interval = 60;
-module_param(approve_retry_interval, uint, 0400);
-MODULE_PARM_DESC(approve_retry_interval, "Session approve retry interval (in seconds)");
-
 static unsigned int nr_buckets = 8192;
 module_param(nr_buckets, uint, 0400);
 MODULE_PARM_DESC(nr_buckets, "Number of buckets to store current sessions list");
@@ -87,15 +83,6 @@ struct ctl_path net_ipt_isg_ctl_path[] = {
 };
 
 static struct ctl_table isg_net_table[] = {
-    {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
-	.ctl_name	= CTL_UNNUMBERED,
-#endif
-	.procname	= "approve_retry_interval",
-	.maxlen		= sizeof(int),
-	.mode		= 0644,
-	.proc_handler	= proc_dointvec
-    },
     {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
 	.ctl_name	= CTL_UNNUMBERED,
@@ -509,6 +496,8 @@ static struct isg_session *isg_create_session(struct isg_net *isg_net, u_int32_t
     is->start_ktime = ts_now.tv_sec;
     is->isg_net = isg_net;
 
+    is->info.max_duration = INITIAL_MAX_DURATION;
+
     port_number = find_next_zero_bit(isg_net->port_bitmap, PORT_BITMAP_SIZE, 1);
     set_bit(port_number, isg_net->port_bitmap);
     is->info.port_number = port_number;
@@ -520,7 +509,7 @@ static struct isg_session *isg_create_session(struct isg_net *isg_net, u_int32_t
     get_random_bytes(&(is->info.id), sizeof(is->info.id));
 
     setup_timer(&is->timer, isg_session_timeout, (unsigned long)is);
-    mod_timer(&is->timer, jiffies + isg_net->approve_retry_interval * HZ);
+    mod_timer(&is->timer, jiffies + session_check_interval * HZ);
 
     hlist_add_head(&is->list, &isg_net->hash[get_isg_hash(is->info.ipaddr)]);
 
@@ -565,6 +554,10 @@ static int isg_update_session(struct isg_net *isg_net, struct isg_in_event *ev) 
     is = isg_find_session(isg_net, ev);
 
     if (is) {
+	if (!is->info.flags) {
+	    is->info.max_duration = 0;
+	}
+
 	is->info.in_rate = ev->si.sinfo.in_rate;
 	is->info.in_burst = ev->si.sinfo.in_burst;
 
@@ -871,8 +864,10 @@ static void isg_session_timeout(unsigned long arg) {
     }
 
     if (!is->info.flags) { /* Unapproved session */
-	isg_free_session(is);
-	goto kfree;
+	if (ts_now.tv_sec - is->start_ktime >= is->info.max_duration) {
+	    isg_free_session(is);
+	    goto kfree;
+	}
     } else if (IS_SESSION_APPROVED(is) || IS_SERVICE_ONLINE(is)) {
 	struct timespec ts_ls;
 	struct isg_session *isrv;
@@ -1141,7 +1136,6 @@ static int isg_initialize(struct isg_net *isg_net) {
     struct isg_net *isg_net = isg_pernet(net);
 #endif
 
-    isg_net->approve_retry_interval = approve_retry_interval;
     isg_net->tg_permit_action = tg_permit_action;
     isg_net->tg_deny_action = tg_deny_action;
     isg_net->pass_outgoing = pass_outgoing;
@@ -1247,10 +1241,9 @@ static int __net_init isg_net_init(struct net *net) {
 #endif
     }
 
-    table[0].data = &isg_net->approve_retry_interval;
-    table[1].data = &isg_net->tg_permit_action;
-    table[2].data = &isg_net->tg_deny_action;
-    table[3].data = &isg_net->pass_outgoing;
+    table[0].data = &isg_net->tg_permit_action;
+    table[1].data = &isg_net->tg_deny_action;
+    table[2].data = &isg_net->pass_outgoing;
 
     isg_net->sysctl_hdr = register_net_sysctl_table(net, net_ipt_isg_ctl_path, table);
     if (isg_net->sysctl_hdr == NULL) {

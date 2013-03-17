@@ -343,7 +343,17 @@ sub job_isg {
 			do_log("info", "Session '$exp_login' on 'Virtual" . $exp_ev->{'port_number'} ."' accepted by '$src_host:$src_port'");
 
 		    } elsif ($rp->code eq "Access-Reject") {
+			my $oev;
+
 			do_log("info", "Session '$exp_login' rejected by '$src_host:$src_port'");
+
+			$oev->{'type'} = ISG::EVENT_SESS_CHANGE;
+			$oev->{'port_number'} = $exp_ev->{'port_number'};
+			$oev->{'max_duration'} = defined($cfg{unauth_session_max_duration}) ? $cfg{unauth_session_max_duration} : 60;
+
+			if (isg_send_event($sk, $oev) < 0) {
+			    do_log("err", "Error sending reply for SESS_CHANGE: $!");
+			}
 
 		    } elsif ($rp->code eq "Accounting-Response") {
 			## No-Op.

@@ -29,6 +29,9 @@ $cfg{session_idle_timeout} = 1800;
 ### Session default maximum duration (end session after this time) (in seconds)
 $cfg{session_max_duration} = 86400;
 
+### Unauth session maximum duration (end session after this time) (in seconds)
+$cfg{unauth_session_max_duration} = 60;
+
 ### Enable static NAT using Framed-IP-Address attribute (comment to disable)
 #$cfg{static_nat} = 1;
 
