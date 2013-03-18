@@ -1,0 +1,12 @@
+.*
+*.o
+*.a
+*.ko
+*.so
+*.order
+*.mod.c
+*.symvers
+Makefile
+build.h
+
+!.gitignore
