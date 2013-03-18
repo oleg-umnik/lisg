@@ -995,7 +995,7 @@ isg_mt(const struct sk_buff *skb,
         struct nehash_entry *ne;
 	struct traffic_class **tc_list;
 
-	ne = nehash_lookup(is->isg_net, iph->saddr);
+	ne = nehash_lookup(is->isg_net, iph->daddr);
 	if (ne == NULL) {
 	    return 0;
 	}
