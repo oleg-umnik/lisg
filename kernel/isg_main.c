@@ -1003,7 +1003,7 @@ isg_mt(const struct sk_buff *skb,
         hlist_for_each_entry(isrv, n, &is->srv_head, srv_node) { /* For each sub-session (service) */
 	    int i;
 
-            if (!(isrv->info.flags & ISG_SERVICE_STATUS_ON)) {
+            if (!(isrv->info.flags & ISG_SERVICE_STATUS_ON) || !(isrv->info.flags & ISG_SERVICE_TAGGER)) {
 		continue;
 	    }
 
@@ -1153,7 +1153,7 @@ isg_tg(struct sk_buff *skb,
         hlist_for_each_entry(isrv, n, &is->srv_head, srv_node) { /* For each sub-session */
 	    int i;
 
-            if (!(isrv->info.flags & ISG_SERVICE_STATUS_ON)) {
+            if (!(isrv->info.flags & ISG_SERVICE_STATUS_ON) || isrv->info.flags & ISG_SERVICE_TAGGER) {
 		continue;
 	    }
 

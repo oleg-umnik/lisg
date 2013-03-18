@@ -54,6 +54,7 @@ use constant SERVICE_STATUS_ON   => (1 << 2);
 use constant SERVICE_ONLINE      => (1 << 3);
 use constant NO_ACCT             => (1 << 4);
 use constant IS_DYING            => (1 << 5);
+use constant SERVICE_TAGGER      => (1 << 6);
 
 use constant FLAG_OP_SET   => 0x01;
 use constant FLAG_OP_UNSET => 0x02;

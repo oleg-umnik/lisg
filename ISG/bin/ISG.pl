@@ -26,6 +26,7 @@ sub sprint_flags {
         $ret .= $ev->{'flags'} & ISG::SERVICE_STATUS_ON ? "O" : "";
         $ret .= $ev->{'flags'} & ISG::SERVICE_ONLINE    ? "U" : "";
         $ret .= $ev->{'flags'} & ISG::NO_ACCT           ? "Z" : "";
+        $ret .= $ev->{'flags'} & ISG::SERVICE_TAGGER    ? "T" : "";
     }
 
     return $ret;
@@ -151,7 +152,8 @@ Keys to flags:
  A	Session is approved
  X	Session is not approved
  S	This is a service (or a sub-session)
- O	Service status is on
- U	Service is online (RADIUS accounting is active)
+ O	Service administrative status is on
+ U	Service is online (RADIUS accounting is active, traffic is flowing)
+ T	Service type is "tagger"
  Z	Accounting is disabled completely
 HELP

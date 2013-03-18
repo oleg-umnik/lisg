@@ -98,6 +98,7 @@ foreach my $srv_name (keys %{$cfg{srv}}) {
     $cfg{srv}{$srv_name}{alive_interval} = $cfg{session_alive_interval} if (!defined($cfg{srv}{$srv_name}{alive_interval}));
     $cfg{srv}{$srv_name}{max_duration} = $cfg{session_max_duration} if (!defined($cfg{srv}{$srv_name}{max_duration}));
     $cfg{srv}{$srv_name}{idle_timeout} = $cfg{session_idle_timeout} if (!defined($cfg{srv}{$srv_name}{idle_timeout}));
+    $cfg{srv}{$srv_name}{type} = "policer" if (!defined($cfg{srv}{$srv_name}{type}));
 }
 
 my %tc_names; &reload_tc(0, 0, \%tc_names);
@@ -655,6 +656,7 @@ sub sanitize_services_list {
 
     foreach my $srv_name (keys %{$srv_list}) {
 	my $srv_status = $srv_list->{$srv_name};
+	my $srv_type = $cfg{srv}{$srv_name}{type};
 
 	if (!$cfg{srv}{$srv_name}) {
 	    do_log("warning", "Service '$srv_name' is not defined in configuration, ignoring");
@@ -667,17 +669,17 @@ sub sanitize_services_list {
 	    my $overlap = 0;
 	    my $class_list = $cfg{srv}{$srv_name}{traffic_classes};
 	    foreach my $cclass (@{$class_list}) {
-		if ($on_cls_list{$cclass}) {
-		    do_log("warning", "Service '$srv_name' has overlapping class with also active service '$on_cls_list{$cclass}', ignoring auto-start on both");
+		if ($on_cls_list{$srv_type}{$cclass}) {
+		    do_log("warning", "Service '$srv_name' has overlapping class with also active service '$on_cls_list{$srv_type}{$cclass}', ignoring auto-start on both");
 		    $overlap = 1;
-		    $ret{$on_cls_list{$cclass}} = $ret{$srv_name} = "N";
+		    $ret{$on_cls_list{$srv_type}{$cclass}} = $ret{$srv_name} = "N";
 		    last;
 		}
 	    }
 
 	    if (!$overlap) {
 		$ret{$srv_name} = "A";
-		$on_cls_list{$_} = $srv_name foreach (@{$class_list});
+		$on_cls_list{$srv_type}{$_} = $srv_name foreach (@{$class_list});
 	    }
 	}
     }
@@ -704,6 +706,10 @@ sub prepare_service_event {
 
     if (defined($cfg{srv}{$srv_name}{no_accounting})) {
         $sev->{'flags'} |= ISG::NO_ACCT;
+    }
+
+    if ($cfg{srv}{$srv_name}{type} eq "tagger") {
+	$sev->{'flags'} |= ISG::SERVICE_TAGGER | ISG::NO_ACCT;
     }
 
     return $sev;

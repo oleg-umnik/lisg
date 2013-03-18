@@ -51,6 +51,19 @@ $cfg{tc_check_interval} = 300; ## Every 5 minutes
 
 ### Begin ``TESTSERV'' service ###
 
+## Service type:
+##
+##  * "policer" - for traffic policing (by default)
+##  * "tagger"  - can be used to classify services using "lisg" match in Netfiler
+##              - (for example to perform L4 redirect)
+##
+## "tagger" service traffic classes can overlap any "policer" service traffic classes
+##
+## rate_info, alive_interval, idle_timeout, max_duration and accounting params has no
+## meaning for "tagger" type service
+
+#$cfg{srv}{TESTSERV}{type} = "tagger";
+
 ## Service download and upload rates in Cisco-Account-Info format (see README file)
 ## Comment "rate_info" line below or use QD;0;0;U;0;0 as its value for no rate limit
 $cfg{srv}{TESTSERV}{rate_info} = "QD;512000;96000;U;512000;96000";
