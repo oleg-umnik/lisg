@@ -267,7 +267,7 @@ sub job_isg {
 			goto out;
 		    }
 
-		    if ($rp->code eq "Access-Accept" || ($rp->code eq "Access-Reject" && defined($cfg{unauth_service_name}))) {
+		    if ($rp->code eq "Access-Accept" || ($rp->code eq "Access-Reject" && defined($cfg{unauth_service_name_list}))) {
 			my $oev;
 			my @rate_info;
 
@@ -286,7 +286,9 @@ sub job_isg {
 				}
 			    }
 			} elsif ($rp->code eq "Access-Reject") {
-			    $srv_list{$cfg{unauth_service_name}} = "A";
+			    foreach my $srv_name (@{$cfg{unauth_service_name_list}}) {
+				$srv_list{$srv_name} = "A";
+			    }
 			}
 
 			%srv_list = sanitize_services_list(\%srv_list);

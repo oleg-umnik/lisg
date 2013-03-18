@@ -32,8 +32,8 @@ $cfg{session_max_duration} = 86400;
 ### Unauth session maximum duration (end session after this time) (in seconds)
 $cfg{unauth_session_max_duration} = 60;
 
-### This service will be automatically applied as active if session was rejected by RADIUS
-#$cfg{unauth_service_name} = "TESTSERV";
+### This services will be automatically applied as active if session was rejected by RADIUS
+#$cfg{unauth_service_name_list} = [ "TESTSERV", "REDIRECT" ];
 
 ### Enable static NAT using Framed-IP-Address attribute (comment to disable)
 #$cfg{static_nat} = 1;
