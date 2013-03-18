@@ -287,7 +287,9 @@ sub job_isg {
 			    }
 			} elsif ($rp->code eq "Access-Reject") {
 			    foreach my $srv_name (@{$cfg{unauth_service_name_list}}) {
-				$srv_list{$srv_name} = "A";
+				if ($srv_name =~ /^(A|N)(.+)/) {
+				    $srv_list{$2} = $1;
+				}
 			    }
 			}
 
