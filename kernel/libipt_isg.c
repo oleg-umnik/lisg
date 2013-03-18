@@ -22,7 +22,7 @@ static const struct option opts[] = {
 static void help(void) {
 	printf(
 "isg match options:\n"
-"  --service-name VALUE		Match packets belonging to specified service\n");
+"  --service-name VALUE		Match packets belonging to specified \"tagger\" type service\n");
 }
 
 static int parse(int c, char **argv, int invert, unsigned int *flags,
