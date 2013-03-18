@@ -266,7 +266,7 @@ sub job_isg {
 			goto out;
 		    }
 
-		    if ($rp->code eq "Access-Accept") {
+		    if ($rp->code eq "Access-Accept" || ($rp->code eq "Access-Reject" && defined($cfg{unauth_service_name}))) {
 			my $oev;
 			my @rate_info;
 
@@ -283,9 +283,12 @@ sub job_isg {
 				        do_log("err", "Unknown attribute Cisco-Account-Info = $val, ignoring");
 				    }
 				}
-				%srv_list = sanitize_services_list(\%srv_list);
 			    }
+			} elsif ($rp->code eq "Access-Reject") {
+			    $srv_list{$cfg{unauth_service_name}} = "A";
 			}
+
+			%srv_list = sanitize_services_list(\%srv_list);
 
 			my $nat_ipaddr     = $rp->attr('Framed-IP-Address');
 			my $alive_interval = $rp->attr('Acct-Interim-Interval');
@@ -297,10 +300,15 @@ sub job_isg {
 			$oev->{'port_number'} = $exp_ev->{'port_number'};
 
 			$oev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{session_alive_interval};
-			$oev->{'max_duration'} = defined($max_duration) ? $max_duration : $cfg{session_max_duration};
 			$oev->{'idle_timeout'} = defined($idle_timeout) ? $idle_timeout : $cfg{session_idle_timeout};
 
 			$oev->{'cookie'} = substr($class, 0, 32) if (defined($class));
+
+			if ($rp->code eq "Access-Reject" && defined($cfg{unauth_session_max_duration})) {
+			    $oev->{'max_duration'} = $cfg{unauth_session_max_duration};
+			} else {
+			    $oev->{'max_duration'} = defined($max_duration) ? $max_duration : $cfg{session_max_duration};
+			}
 
 			if (scalar(@rate_info) == 4) {
 			    $oev->{'in_rate'}  = $rate_info[0];
@@ -315,7 +323,7 @@ sub job_isg {
 
 			    $sev->{'type'} = ISG::EVENT_SERV_APPLY;
 			    $sev->{'port_number'} = $exp_ev->{'port_number'};
-			    $sev->{'flags'} = $srv_list{$srv_name} eq "A" ? ISG::SERVICE_STATUS_ON : 0;
+			    $sev->{'flags'} |= $srv_list{$srv_name} eq "A" ? ISG::SERVICE_STATUS_ON : 0;
 
 			    if (isg_send_event($sk, $sev) < 0) {
 				do_log("err", "Error sending EVENT_SERV_APPLY for service '$srv_name': $!");
@@ -332,7 +340,7 @@ sub job_isg {
 			    }
 			}
 
-			if (defined($cfg{no_accounting})) {
+			if (defined($cfg{no_accounting}) || $rp->code eq "Access-Reject") {
 			    $oev->{'flags'} |= ISG::NO_ACCT;
 			}
 
@@ -692,8 +700,10 @@ sub prepare_service_event {
     $sev->{'idle_timeout'} = $cfg{srv}{$srv_name}{idle_timeout};
     $sev->{'max_duration'} = $cfg{srv}{$srv_name}{max_duration};
 
+    $sev->{'flags'} = 0;
+
     if (defined($cfg{srv}{$srv_name}{no_accounting})) {
-        $sev->{'flags'} = ISG::NO_ACCT;
+        $sev->{'flags'} |= ISG::NO_ACCT;
     }
 
     return $sev;
