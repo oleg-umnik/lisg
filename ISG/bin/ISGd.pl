@@ -201,7 +201,7 @@ sub job_isg {
 			    }
 			}
 		    } else {
-			do_log("err", "Unknown event from NETLINK socket (" . $ev->{'type'} . ")");
+			do_log("err", "Unknown event from NETLINK socket (0x" . unpack("H*", pack("C", $ev->{'type'})) . ")");
 		    }
 		} else {
 		    my $src_host = $rsk->peerhost();
