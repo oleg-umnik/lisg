@@ -381,7 +381,9 @@ static void isg_sweep_service_desc_tc(struct isg_net *isg_net) {
     struct hlist_node *n;
 
     hlist_for_each_entry(sdesc, n, &isg_net->services, list) {
-	memset(sdesc->tcs, 0, sizeof(sdesc->tcs));
+	if (!(sdesc->flags & SERVICE_DESC_IS_DYNAMIC)) {
+	    memset(sdesc->tcs, 0, sizeof(sdesc->tcs));
+	}
     }
 }
 
@@ -414,7 +416,9 @@ static int isg_add_service_desc(struct isg_net *isg_net, u_int8_t *service_name,
     tc_list = sdesc->tcs;
 
     for (i = 0; *tc_list && i < MAX_SD_CLASSES; i++) {
-	tc_list++;
+	if (*(tc_list++) == tc) {
+	    goto out;
+	}
     }
 
     if (*tc_list) {
@@ -424,6 +428,7 @@ static int isg_add_service_desc(struct isg_net *isg_net, u_int8_t *service_name,
 
     *tc_list = tc;
 
+out:
     spin_unlock_bh(&isg_lock);
     return 0;
 

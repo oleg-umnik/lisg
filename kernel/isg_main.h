@@ -162,6 +162,7 @@ struct isg_in_event {
 	struct service_desc_in {
 	    u_int8_t tc_name[32];
 	    u_int8_t service_name[32];
+	    u_int8_t flags;
 	} __attribute__ ((packed)) sdesc;
     };
 } __attribute__ ((packed));
@@ -189,6 +190,8 @@ struct nehash_entry {
 struct isg_service_desc {
     struct hlist_node list;
     u_int8_t name[32];
+    u_int8_t flags;
+#define SERVICE_DESC_IS_DYNAMIC	(1 << 0)
     struct traffic_class *tcs[MAX_SD_CLASSES];
 };
 

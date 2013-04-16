@@ -59,6 +59,8 @@ use constant SERVICE_TAGGER      => (1 << 6);
 use constant FLAG_OP_SET   => 0x01;
 use constant FLAG_OP_UNSET => 0x02;
 
+use constant SERVICE_DESC_IS_DYNAMIC => (1 << 0);
+
 sub NLMSG_ALIGN {
     my $len = shift;
     return ( (($len)+NLMSG_ALIGNTO-1) & ~(NLMSG_ALIGNTO-1) );
@@ -191,6 +193,7 @@ sub init_event_fields {
     $pars->{'out_rate'}		= 0;
     $pars->{'out_burst'}	= 0;
     $pars->{'service_name'}	= "";
+    $pars->{'service_flags'}	= 0;
     $pars->{'flags_op'}		= 0;
 
     $pars->{'nehash_pfx'}	= 0;
@@ -205,10 +208,11 @@ sub pack_event {
 
     if ($pars->{'type'} == ISG::EVENT_SDESC_ADD) {
 
-	return pack("I a32 a32 a24",
+	return pack("I a32 a32 C a23",
 	    $pars->{'type'},
 	    $pars->{'nehash_tc_name'},
-	    $pars->{'service_name'}
+	    $pars->{'service_name'},
+	    $pars->{'service_flags'}
 	);
 
     } elsif ($pars->{'type'} == ISG::EVENT_NE_ADD_QUEUE) {

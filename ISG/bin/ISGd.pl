@@ -68,37 +68,7 @@ my $rad_dict = ISG::load_radius_dictionary($cfg{radius_dictionary});
 my $ev; my %rep;
 
 foreach my $srv_name (keys %{$cfg{srv}}) {
-    # TODO: Check that max_duration > idle_timeout > alive_interval [only when != 0]
-
-    if (!defined($cfg{srv}{$srv_name}{traffic_classes})) {
-	do_log("err", "At least one class must be defined, throw service '$srv_name'");
-	delete($cfg{srv}{$srv_name});
-	next;
-    }
-
-    if (defined($cfg{srv}{$srv_name}{rate_info})) {
-	my @rate_info = parse_account_qos($cfg{srv}{$srv_name}{rate_info});
-	if (scalar(@rate_info) == 4) {
-	    $cfg{srv}{$srv_name}{u_rate}  = $rate_info[0];
-	    $cfg{srv}{$srv_name}{u_burst} = $rate_info[1];
-	    $cfg{srv}{$srv_name}{d_rate}  = $rate_info[2];
-	    $cfg{srv}{$srv_name}{d_burst} = $rate_info[3];
-	} else {
-	    do_log("err", "Bad service rate specification, throw service '$srv_name'");
-	    delete($cfg{srv}{$srv_name});
-	    next;
-	}
-    } else {
-	$cfg{srv}{$srv_name}{u_rate}  = 0;
-	$cfg{srv}{$srv_name}{u_burst} = 0;
-	$cfg{srv}{$srv_name}{d_rate}  = 0;
-	$cfg{srv}{$srv_name}{d_burst} = 0;
-    }
-
-    $cfg{srv}{$srv_name}{alive_interval} = $cfg{session_alive_interval} if (!defined($cfg{srv}{$srv_name}{alive_interval}));
-    $cfg{srv}{$srv_name}{max_duration} = $cfg{session_max_duration} if (!defined($cfg{srv}{$srv_name}{max_duration}));
-    $cfg{srv}{$srv_name}{idle_timeout} = $cfg{session_idle_timeout} if (!defined($cfg{srv}{$srv_name}{idle_timeout}));
-    $cfg{srv}{$srv_name}{type} = "policer" if (!defined($cfg{srv}{$srv_name}{type}));
+    prepare_service($srv_name);
 }
 
 my %tc_names; &reload_tc(0, 0, \%tc_names);
@@ -278,6 +248,28 @@ sub job_isg {
 				foreach my $val (@{$cisco_ai}) {
 				    if ($val =~ /^(A|N)(.+)/) {
 					$srv_list{$2} = $1;
+				    } elsif ($val =~ /^QC;(.+?);/) {
+					my $ev; my %rep;
+
+					my $srv_name = "DYN_" . uc(substr(Digest::MD5::md5_hex($val), 0, 16));
+					my $class = $1;
+
+					$cfg{srv}{$srv_name}{rate_info} = $val;
+					$cfg{srv}{$srv_name}{traffic_classes} = [ $class ];
+
+					prepare_service($srv_name);
+
+					$srv_list{$srv_name} = "A";
+
+					$ev->{'type'} = ISG::EVENT_SDESC_ADD;
+					$ev->{'nehash_tc_name'} = $class;
+					$ev->{'service_name'} = $srv_name;
+					$ev->{'service_flags'} = ISG::SERVICE_DESC_IS_DYNAMIC;
+
+					if (isg_send_event($sk, $ev, \%rep) < 0) {
+					    do_log("err", "Unable to add dynamic service description ($!)");
+					}
+					
 				    } elsif ($val =~ /^Q/) {
 					@rate_info = parse_account_qos($val);
 				    } else {
@@ -689,6 +681,42 @@ sub sanitize_services_list {
     }
 
     return %ret;
+}
+
+sub prepare_service {
+    my $srv_name = shift;
+
+    if (!defined($cfg{srv}{$srv_name}{traffic_classes})) {
+	do_log("err", "At least one class must be defined, throw service '$srv_name'");
+	delete($cfg{srv}{$srv_name});
+	return;
+    }
+
+    if (defined($cfg{srv}{$srv_name}{rate_info})) {
+	my @rate_info = parse_account_qos($cfg{srv}{$srv_name}{rate_info});
+	if (scalar(@rate_info) == 4) {
+	    $cfg{srv}{$srv_name}{u_rate}  = $rate_info[0];
+	    $cfg{srv}{$srv_name}{u_burst} = $rate_info[1];
+	    $cfg{srv}{$srv_name}{d_rate}  = $rate_info[2];
+	    $cfg{srv}{$srv_name}{d_burst} = $rate_info[3];
+	} else {
+	    do_log("err", "Bad service rate specification, throw service '$srv_name'");
+	    delete($cfg{srv}{$srv_name});
+	    return;
+	}
+    } else {
+	$cfg{srv}{$srv_name}{u_rate}  = 0;
+	$cfg{srv}{$srv_name}{u_burst} = 0;
+	$cfg{srv}{$srv_name}{d_rate}  = 0;
+	$cfg{srv}{$srv_name}{d_burst} = 0;
+    }
+
+    $cfg{srv}{$srv_name}{alive_interval} = $cfg{session_alive_interval} if (!defined($cfg{srv}{$srv_name}{alive_interval}));
+    $cfg{srv}{$srv_name}{max_duration} = $cfg{session_max_duration} if (!defined($cfg{srv}{$srv_name}{max_duration}));
+    $cfg{srv}{$srv_name}{idle_timeout} = $cfg{session_idle_timeout} if (!defined($cfg{srv}{$srv_name}{idle_timeout}));
+    $cfg{srv}{$srv_name}{type} = "policer" if (!defined($cfg{srv}{$srv_name}{type}));
+
+    use Data::Dumper; print Dumper($cfg{srv}{$srv_name}); ## XXX
 }
 
 sub prepare_service_event {
