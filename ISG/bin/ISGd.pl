@@ -715,8 +715,6 @@ sub prepare_service {
     $cfg{srv}{$srv_name}{max_duration} = $cfg{session_max_duration} if (!defined($cfg{srv}{$srv_name}{max_duration}));
     $cfg{srv}{$srv_name}{idle_timeout} = $cfg{session_idle_timeout} if (!defined($cfg{srv}{$srv_name}{idle_timeout}));
     $cfg{srv}{$srv_name}{type} = "policer" if (!defined($cfg{srv}{$srv_name}{type}));
-
-    use Data::Dumper; print Dumper($cfg{srv}{$srv_name}); ## XXX
 }
 
 sub prepare_service_event {
