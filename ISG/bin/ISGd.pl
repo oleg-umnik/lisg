@@ -10,7 +10,6 @@ use Fcntl;
 use Sys::Syslog;
 use Getopt::Long;
 
-use IPTables::SubnetSkeleton;
 use ISG;
 
 my $cfg_source;
@@ -198,16 +197,8 @@ sub job_isg {
 			} elsif ($ev->{'type'} == ISG::EVENT_SESS_STOP) {
 
 			    if ($ev->{'flags'} & ISG::IS_APPROVED_SESSION) {
-				if (defined($cfg{static_nat}) && $ev->{'nat_ipaddr'} &&
-				   (!defined($cfg{ignored_framed_ip}) || $nat_ipaddr !~ $cfg{ignored_framed_ip}) &&
-				   $ipaddr ne $nat_ipaddr) {
-				    skel_static_nat("del", $ipaddr, $nat_ipaddr);
-				    bh_route("del", $nat_ipaddr);
-				}
-
 				make_new_child($cfg{cb_on_session_stop}, { "ipaddr" => $ipaddr, "nat_ipaddr" => $nat_ipaddr }) if defined($cfg{cb_on_session_stop});
 				do_log("info", "Session '$ipaddr' on 'Virtual" . $ev->{'port_number'} . "' finished");
-
 			    } elsif ($ev->{'flags'} & ISG::IS_SERVICE) {
 				do_log("info", "Service '" . $ev->{'service_name'} . "' for '$ipaddr' finished");
 			    }
@@ -341,12 +332,6 @@ sub job_isg {
 
 			if (defined($nat_ipaddr)) {
 			    $oev->{'nat_ipaddr'} = ISG::ip2long($nat_ipaddr);
-			    if (defined($cfg{static_nat}) &&
-			       (!defined($cfg{ignored_framed_ip}) || $nat_ipaddr !~ $cfg{ignored_framed_ip}) &&
-			       $exp_login ne $nat_ipaddr) {
-				skel_static_nat("add", $exp_login, $nat_ipaddr);
-				bh_route("add", $nat_ipaddr);
-			    }
 			} else {
 			    $nat_ipaddr = "0.0.0.0";
 			}
@@ -952,64 +937,6 @@ sub destroy_radius_socket {
     $s_sel->remove($sk);
     close($sk);
     delete($rad_reqs{"$wait_key"});
-}
-
-sub skel_static_nat {
-    my ($act, $local_ip, $real_ip) = @_;
-
-    my $jump; my $ip_s; my $ip_d; my $where;
-
-    my @CIDR = (18, 20, 22, 24, 26, 28, 30);
-
-    return if ($act ne "add" && $act ne "del");
-
-    foreach ("dst", "src") {
-        my $sk = IPTables::SubnetSkeleton::new("stat_nat", $_, "nat", @CIDR);
-        my $ipt = $sk->get_iptables_object();
-
-        if ($_ eq "dst") {
-            $jump  = "DNAT";
-	    $where = "destination";
-	    $ip_s  = $real_ip;
-	    $ip_d  = $local_ip;
-    	} elsif ($_ eq "src") {
-    	    $jump  = "SNAT";
-	    $where = "source";
-	    $ip_s  = $local_ip;
-	    $ip_d  = $real_ip;
-	}
-
-	if ($act eq "add") {
-	    $sk->insert_element($ip_s, $jump, "--to-" . $where . " " . $ip_d);
-	} elsif ($act eq "del") {
-	    my $leaf_chain = $sk->get_leaf_chainname($ip_s);
-
-	    if (defined($leaf_chain) && $ipt->is_chain($leaf_chain)) {
-		my @rules = $ipt->list_rules_IPs($_, $leaf_chain);
-    		my $rnum = 1;
-    		my $found_rnum = 0;
-
-        	foreach (@rules) {
-	    	    $found_rnum = $rnum if ($ip_s eq $_);
-        	    $rnum++;
-    		}
-
-    		if ($found_rnum) {
-    	    	    $ipt->iptables_do_command("-D", $leaf_chain, $found_rnum);
-    		}
-	    }
-	}
-
-	$ipt->unlock();
-    }
-}
-
-sub bh_route {
-    my ($act, $real_ip) = @_;
-
-    return if ($act ne "add" && $act ne "del");
-
-    `ip route $act blackhole $real_ip 2>/dev/null`;
 }
 
 sub reload_tc {
