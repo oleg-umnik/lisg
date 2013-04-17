@@ -30,14 +30,34 @@ my %rad_reqs;
 my $rad_packet_id = 0;
 my $last_watch = 0;
 my %child = ();
+my %jobs = ();
+my $dying = 0;
 my $nas_ip;
 my $nas_id;
 
 $SIG{INT}  = \&term_all;
+$SIG{KILL} = \&term_all;
 $SIG{TERM} = \&term_all;
+
+$SIG{CHLD} = sub {
+    while ((my $pid = waitpid(-1, WNOHANG)) > 0) {
+	if ($pid > -1 && (my $job = delete($child{$pid}))) {
+	    my $rc = $? >> 8;
+	    my $str_info = "Job '$job' (PID $pid) was finished.";
+	    if ($rc == 254) {
+		do_log("err", "$str_info Main process (PID $$) exiting too.");
+		kill('TERM', $$);
+	    } elsif (!$dying) {
+		do_log("err", "$str_info Trying to restart.");
+		make_new_child($jobs{$job}, 0, $job);
+	    }
+	}
+    }
+};
 
 sub term_all {
     my $sig = shift;
+    $dying = 1;
 
     do_log("info", "Got signal $sig. Terminating all childs and finishing.");
     unlink($cfg{pid_file});
@@ -104,26 +124,15 @@ undef(%tc_names);
 
 &daemonize() if ($cfg{daemonize});
 
-make_new_child("isg");
-make_new_child("coa");
-make_new_child("reload_tc");
+$jobs{"ISG"}        = \&job_isg;
+$jobs{"CoA"}        = \&job_coa;
+$jobs{"TC_Refresh"} = \&job_reload_tc;
+
+foreach my $job (keys %jobs) {
+    make_new_child($jobs{$job}, 0, $job);
+}
 
 while (1) {
-    my $pid = wait;
-    my $job;
-
-    if ($pid > -1 && ($job = delete($child{$pid}))) {
-	my $rc = $? >> 8;
-	my $str_info = "Job '$job' (PID $pid) was finished.";
-	if ($rc == 254) {
-	    do_log("err", "$str_info Main process (PID $$) exiting too.");
-	    kill('TERM', $$);
-	} else {
-	    do_log("err", "$str_info Trying to restart.");
-	    make_new_child($job);
-	}
-    }
-
     sleep(1);
 }
 
@@ -195,13 +204,16 @@ sub job_isg {
 				    skel_static_nat("del", $ipaddr, $nat_ipaddr);
 				    bh_route("del", $nat_ipaddr);
 				}
+
+				make_new_child($cfg{cb_on_session_stop}, { "ipaddr" => $ipaddr, "nat_ipaddr" => $nat_ipaddr }) if defined($cfg{cb_on_session_stop});
 				do_log("info", "Session '$ipaddr' on 'Virtual" . $ev->{'port_number'} . "' finished");
+
 			    } elsif ($ev->{'flags'} & ISG::IS_SERVICE) {
 				do_log("info", "Service '" . $ev->{'service_name'} . "' for '$ipaddr' finished");
 			    }
 			}
 		    } else {
-			do_log("err", "Unknown event from NETLINK socket (0x" . unpack("H*", pack("C", $ev->{'type'})) . ")");
+			do_log("err", "Unknown event from NETLINK socket (" . $ev->{'type'} . ")");
 		    }
 		} else {
 		    my $src_host = $rsk->peerhost();
@@ -269,7 +281,7 @@ sub job_isg {
 					if (isg_send_event($sk, $ev, \%rep) < 0) {
 					    do_log("err", "Unable to add dynamic service description ($!)");
 					}
-					
+
 				    } elsif ($val =~ /^Q/) {
 					@rate_info = parse_account_qos($val);
 				    } else {
@@ -335,6 +347,8 @@ sub job_isg {
 				skel_static_nat("add", $exp_login, $nat_ipaddr);
 				bh_route("add", $nat_ipaddr);
 			    }
+			} else {
+			    $nat_ipaddr = "0.0.0.0";
 			}
 
 			if (defined($cfg{no_accounting}) || $rp->code eq "Access-Reject") {
@@ -345,6 +359,7 @@ sub job_isg {
 			    do_log("err", "Error sending EVENT_SESS_APPROVE: $!");
 			}
 
+			make_new_child($cfg{cb_on_session_start}, { "ipaddr" => $exp_login, "nat_ipaddr" => $nat_ipaddr }) if defined($cfg{cb_on_session_start});
 			do_log("info", "Session '$exp_login' on 'Virtual" . $exp_ev->{'port_number'} ."' accepted by '$src_host:$src_port'");
 
 		    } elsif ($rp->code eq "Access-Reject") {
@@ -384,7 +399,7 @@ out:
 	# Watch for RADIUS requests waiting for server reply
 	if ($s_sel->count > 1 && $last_watch != time()) {
 	    my $now = time();
-    	    my @all_sks = $s_sel->handles;
+	    my @all_sks = $s_sel->handles;
 
 	    foreach my $rsk (@all_sks) {
 		if ($rsk != $netlink_sk) {
@@ -404,7 +419,7 @@ out:
 			send_radius_request($conf_key, $pk_ev, $prio + 1);
 		    }
 		}
-    	    }
+	    }
 	    $last_watch = time();
 	}
     }
@@ -1131,22 +1146,23 @@ sub daemonize {
 }
 
 sub make_new_child {
-    my $job = shift;
+    my ($job, $par, $job_name) = @_;
 
     my $pid;
     my $sigset;
 
     # block signal for fork
     $sigset = POSIX::SigSet->new(SIGINT);
-    sigprocmask(SIG_BLOCK, $sigset)
-        or die "Can't block SIGINT for fork: $!\n";
+    sigprocmask(SIG_BLOCK, $sigset) or die "Can't block SIGINT for fork: $!\n";
 
-    die "fork: $!" unless defined ($pid = fork);
+    if (!defined($pid = fork())) {
+	do_log("err", "Unable to make new child: $!");
+	return 0;
+    }
 
     if ($pid) {
-        sigprocmask(SIG_UNBLOCK, $sigset)
-            or die "Can't unblock SIGINT for fork: $!\n";
-        $child{$pid} = $job;
+        sigprocmask(SIG_UNBLOCK, $sigset) or die "Can't unblock SIGINT for fork: $!\n";
+        $child{$pid} = $job_name if (defined($job_name));
         return $pid;
     }
 
@@ -1155,11 +1171,8 @@ sub make_new_child {
     $SIG{TERM} = 'DEFAULT';
 
     # unblock signals
-    sigprocmask(SIG_UNBLOCK, $sigset)
-        or die "Can't unblock SIGINT for fork: $!\n";
+    sigprocmask(SIG_UNBLOCK, $sigset) or die "Can't unblock SIGINT for fork: $!\n";
 
-    no strict 'refs';
-    $job = *{"job_$job"}{CODE};
-    $job->($$);
+    $job->(defined($par) ? $par : 0);
     exit;
 }

@@ -47,6 +47,10 @@ $cfg{tc_check_interval} = 300; ## Every 5 minutes
 ### Don't send RADIUS accounting for main session (even RADIUS Start and Stop)
 #$cfg{no_accounting} = 1; ## Default is to send
 
+### Callbacks (ipaddr and nat_ipaddr currenly passed)
+#$cfg{cb_on_session_start} = sub { my $pars = shift; print $pars->{"ipaddr"} . " " . $pars->{"nat_ipaddr"} . "\n"; };
+#$cfg{cb_on_session_stop} = sub { my $pars = shift; print $pars->{"ipaddr"} . " " . $pars->{"nat_ipaddr"} . "\n"; };
+
 ####################### Services description #######################
 
 ### Begin ``TESTSERV'' service ###
