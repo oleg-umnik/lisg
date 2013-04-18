@@ -3,7 +3,7 @@
 ulimit -n 8192
 
 ISGd_RUN="ISGd"
-ISGd_RUN="/usr/local/ISG/bin/ISGd.pl"
+ISGd_RUN="/opt/ISG/bin/ISGd.pl"
 
 NAME=`basename $0`
 
