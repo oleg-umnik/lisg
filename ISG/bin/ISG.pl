@@ -41,6 +41,8 @@ if ($sk < 0) {
 if (defined($ARGV[0]) && defined($ARGV[1])) {
     if ($ARGV[1] =~ /^Virtual([0-9]{1,})$/) {
 	$ev->{'port_number'} = $1;
+    } elsif ($ARGV[1] =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
+	$ev->{'ipaddr'} = ISG::ip2long($ARGV[1]);
     } else {
 	$ev->{'session_id'} = ISG::hex_session_id_to_llu($ARGV[1]);
     }
@@ -140,13 +142,13 @@ invalid_usage:
     print <<HELP;
 Usage: $0 command
 
-$0 command without any parameters will show all active sessions
+$0 command without any parameters will show all sessions
 
 Commands:
- show_count						Show session counters
- show_services <Virtual# | Session-ID>			Show services for specific session
- clear <Virtual# | Session-ID>				Clear specific session
- change_rate <Virtual# | Session-ID> <in_rate out_rate>	Change rate for specific session
+ show_count								Show session counters
+ show_services <IP-address | Virtual# | Session-ID>			Show services for specific session
+ clear <IP-address | Virtual# | Session-ID>				Clear specific session
+ change_rate <IP-address | Virtual# | Session-ID> <in_rate out_rate>	Change rate for specific session
 
 Keys to flags:
  A	Session is approved
