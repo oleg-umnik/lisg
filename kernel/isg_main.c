@@ -65,7 +65,6 @@ static unsigned int jhash_rnd __read_mostly;
 static DEFINE_MUTEX(event_mutex);
 DEFINE_SPINLOCK(isg_lock);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 static int isg_net_id;
 static inline struct isg_net *isg_pernet(struct net *net) {
     return net_generic(net, isg_net_id);
@@ -114,20 +113,13 @@ static struct ctl_table isg_net_table[] = {
     },
     { },
 };
-#else
-struct isg_net *isg_default_net;
-#endif
 
 static void isg_nl_receive_skb(struct sk_buff *skb) {
     struct nlmsghdr *nlh = (struct nlmsghdr *) skb->data;
     struct isg_in_event *ev = (struct isg_in_event *) NLMSG_DATA(nlh);
     pid_t from_pid = nlh->nlmsg_pid;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
     struct isg_net *isg_net = isg_pernet(sock_net(skb->sk));
-#else
-    struct isg_net *isg_net = isg_default_net;
-#endif
 
     switch (ev->type) {
 	int type;
@@ -208,24 +200,10 @@ static void isg_nl_receive_skb(struct sk_buff *skb) {
     }
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 static void isg_nl_receive(struct sk_buff *skb) {
-#else
-static void isg_nl_receive(struct sock *sk, int len) {
-    struct sk_buff *skb;
-    unsigned int qlen;
-#endif
     mutex_lock(&event_mutex);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
     isg_nl_receive_skb(skb);
-#else
-    for (qlen = skb_queue_len(&sk->sk_receive_queue); qlen; qlen--) {
-	skb = skb_dequeue(&sk->sk_receive_queue);
-	isg_nl_receive_skb(skb);
-	kfree_skb(skb);
-    }
-#endif
     mutex_unlock(&event_mutex);
 }
 
@@ -823,12 +801,8 @@ static void isg_update_tokens(struct isg_session *is, u_int64_t now, u_int8_t di
     u_int64_t tokens;
 
     if (dir == ISG_DIR_IN) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
 	tokens = div_s64(is->info.in_rate * (now - is->in_last_seen), NSEC_PER_SEC);
-#else
-	tokens = is->info.in_rate * (now - is->in_last_seen);
-	do_div(tokens, NSEC_PER_SEC);
-#endif
+
 	if ((is->in_tokens + tokens) > is->info.in_burst) {
             is->in_tokens = is->info.in_burst;
         } else {
@@ -837,12 +811,8 @@ static void isg_update_tokens(struct isg_session *is, u_int64_t now, u_int8_t di
 
 	is->in_last_seen = now;
     } else {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
 	tokens = div_s64(is->info.out_rate * (now - is->out_last_seen), NSEC_PER_SEC);
-#else
-	tokens = is->info.out_rate * (now - is->out_last_seen);
-	do_div(tokens, NSEC_PER_SEC);
-#endif
+
 	if ((is->out_tokens + tokens) > is->info.out_burst) {
             is->out_tokens = is->info.out_burst;
         } else {
@@ -889,11 +859,7 @@ static void isg_session_timeout(unsigned long arg) {
 	    }
 	}
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
-	ns_to_timespec(ts_ls, is->in_last_seen);
-#else
 	ts_ls = ns_to_timespec(is->in_last_seen);
-#endif
 
 	/* Check maximum session duration and idle timeout */
 	if ((is->info.max_duration && is->stat.duration >= is->info.max_duration) ||
@@ -923,58 +889,17 @@ kfree:
 }
 
 static bool
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
-isg_mt(struct sk_buff **pskb,
-	unsigned int hooknum,
-	const struct net_device *in,
-	const struct net_device *out,
-	const void *targinfo,
-	void *userinfo)
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17)
-isg_mt(struct sk_buff **pskb,
-	const struct net_device *in,
-	const struct net_device *out,
-	unsigned int hooknum,
-	const void *targinfo,
-	void *userinfo)
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
-isg_mt(struct sk_buff **pskb,
-	const struct net_device *in,
-	const struct net_device *out,
-	unsigned int hooknum,
-	const struct xt_target *target,
-	const void *targinfo,
-	void *userinfo)
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-isg_mt(struct sk_buff **pskb,
-	const struct net_device *in,
-	const struct net_device *out,
-	unsigned int hooknum,
-	const struct xt_target *target,
-	const void *targinfo)
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
-isg_mt(const struct sk_buff *skb,
-	const struct net_device *in,
-	const struct net_device *out,
-	unsigned int hooknum,
-	const struct xt_target *target,
-	const void *targinfo)
-#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28) */
 isg_mt(const struct sk_buff *skb,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
-	struct xt_target_param *par)
+	const struct xt_match_param *par)
 #else
 	struct xt_action_param *par)
 #endif
-#endif
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
-    const struct ipt_ISG_mt_info *iinfo = targinfo;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
+    const struct ipt_ISG_mt_info *iinfo = par->matchinfo;
 #else
     const struct ipt_ISG_mt_info *iinfo = par->targinfo;
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-    struct sk_buff *skb = *pskb;
 #endif
 
     struct iphdr *iph, _iph;
@@ -986,11 +911,7 @@ isg_mt(const struct sk_buff *skb,
 	return 0;
     }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
     isg_net = isg_pernet(dev_net((par->in != NULL) ? par->in : par->out));
-#else
-    isg_net = isg_default_net;
-#endif
 
     is = isg_lookup_session(isg_net, iph->saddr);
 
@@ -1028,59 +949,14 @@ isg_mt(const struct sk_buff *skb,
 }
 
 static unsigned int
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
-isg_tg(struct sk_buff **pskb,
-	unsigned int hooknum,
-	const struct net_device *in,
-	const struct net_device *out,
-	const void *targinfo,
-	void *userinfo)
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17)
-isg_tg(struct sk_buff **pskb,
-	const struct net_device *in,
-	const struct net_device *out,
-	unsigned int hooknum,
-	const void *targinfo,
-	void *userinfo)
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
-isg_tg(struct sk_buff **pskb,
-	const struct net_device *in,
-	const struct net_device *out,
-	unsigned int hooknum,
-	const struct xt_target *target,
-	const void *targinfo,
-	void *userinfo)
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-isg_tg(struct sk_buff **pskb,
-	const struct net_device *in,
-	const struct net_device *out,
-	unsigned int hooknum,
-	const struct xt_target *target,
-	const void *targinfo)
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
-isg_tg(struct sk_buff *skb,
-	const struct net_device *in,
-	const struct net_device *out,
-	unsigned int hooknum,
-	const struct xt_target *target,
-	const void *targinfo)
-#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28) */
 isg_tg(struct sk_buff *skb,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35)
 	const struct xt_target_param *par)
 #else
 	const struct xt_action_param *par)
 #endif
-#endif
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
-    const struct ipt_ISG_info *iinfo = targinfo;
-#else
     const struct ipt_ISG_info *iinfo = par->targinfo;
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-    struct sk_buff *skb = *pskb;
-#endif
 
     struct iphdr _iph, *iph;
     struct isg_session *is, *isrv, *classic_is = NULL;
@@ -1105,11 +981,7 @@ isg_tg(struct sk_buff *skb,
 
     pkt_len_bits = pkt_len << 3;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
     isg_net = isg_pernet(dev_net((par->in != NULL) ? par->in : par->out));
-#else
-    isg_net = isg_default_net;
-#endif
 
     spin_lock_bh(&isg_lock);
 
@@ -1236,17 +1108,11 @@ DROP:
     }
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 static int isg_initialize(struct net *net) {
-#else
-static int isg_initialize(struct isg_net *isg_net) {
-#endif
     unsigned int i;
     int hsize = sizeof(struct hlist_head) * nr_buckets;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
     struct isg_net *isg_net = isg_pernet(net);
-#endif
 
     isg_net->tg_permit_action = tg_permit_action;
     isg_net->tg_deny_action = tg_deny_action;
@@ -1275,11 +1141,8 @@ static int isg_initialize(struct isg_net *isg_net) {
 	return -ENOMEM;
     }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
     isg_net->sknl = netlink_kernel_create(net, ISG_NETLINK_MAIN, 0, isg_nl_receive, NULL, THIS_MODULE);
-#else
-    isg_net->sknl = netlink_kernel_create(ISG_NETLINK_MAIN, 0, isg_nl_receive, THIS_MODULE);
-#endif
+
     if (isg_net->sknl == NULL) {
 	printk(KERN_ERR "ipt_ISG: Can't create ISG_NETLINK_MAIN socket\n");
 	return -1;
@@ -1297,11 +1160,7 @@ void isg_cleanup(struct isg_net *isg_net) {
     isg_net->listener_pid = 0;
 
     if (isg_net->sknl != NULL) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25)
 	netlink_kernel_release(isg_net->sknl);
-#else
-	sock_release(isg_net->sknl->sk_socket);
-#endif
     }
 
     spin_lock_bh(&isg_lock);
@@ -1325,7 +1184,6 @@ void isg_cleanup(struct isg_net *isg_net) {
     vfree(isg_net->port_bitmap);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 static int __net_init isg_net_init(struct net *net) {
     struct isg_net *isg_net;
     struct ctl_table *table;
@@ -1407,15 +1265,10 @@ static struct pernet_operations isg_net_ops = {
     .size = sizeof(struct isg_net),
 #endif
 };
-#endif
 
 static struct xt_target isg_tg_reg __read_mostly = {
     .name		= "ISG",
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28)
     .family		= NFPROTO_IPV4,
-#else
-    .family		= AF_INET,
-#endif
     .target		= isg_tg,
     .targetsize		= sizeof(struct ipt_ISG_info),
     .me			= THIS_MODULE,
@@ -1423,11 +1276,7 @@ static struct xt_target isg_tg_reg __read_mostly = {
 
 static struct xt_match isg_mt_reg __read_mostly = {
     .name		= "isg",
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28)
     .family		= NFPROTO_IPV4,
-#else
-    .family		= AF_INET,
-#endif
     .match		= isg_mt,
     .matchsize		= sizeof(struct ipt_ISG_mt_info),
     .me			= THIS_MODULE,
@@ -1438,7 +1287,6 @@ static int __init isg_tg_init(void) {
 
     get_random_bytes(&jhash_rnd, sizeof(jhash_rnd));
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
     isg_sysctl_hdr = register_sysctl_paths(net_ipt_isg_ctl_path, empty_ctl_table);
     if (isg_sysctl_hdr == NULL) {
 	return -ENOMEM;
@@ -1449,15 +1297,7 @@ static int __init isg_tg_init(void) {
 #else /* < 2.6.33 */
     err = register_pernet_subsys(&isg_net_ops);
 #endif
-#else /* >= 2.6.24 */
-    isg_default_net = kzalloc(sizeof(struct isg_net), GFP_ATOMIC);
-    if (isg_default_net == NULL) {
-	printk(KERN_ERR "ipt_ISG: Unable to allocate net structure\n");
-	return -ENOMEM;
-    }
 
-    err = isg_initialize(isg_default_net);
-#endif
     if (err < 0) {
 	return err;
     }
@@ -1484,17 +1324,12 @@ static void __exit isg_tg_exit(void) {
     xt_unregister_match(&isg_mt_reg);
     xt_unregister_target(&isg_tg_reg);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
     unregister_pernet_gen_subsys(isg_net_id, &isg_net_ops);
 #else /* < 2.6.33 */
     unregister_pernet_subsys(&isg_net_ops);
 #endif
     unregister_sysctl_table(isg_sysctl_hdr);
-#else /* >= 2.6.24 */
-    isg_cleanup(isg_default_net);
-    kfree(isg_default_net);
-#endif
 
     printk(KERN_INFO "ipt_ISG: Unloaded\n");
 }
