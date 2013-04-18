@@ -7,20 +7,6 @@ error() {
   exit 1
 }
 
-iptables_src_version() {
-  echo -n "Checking iptables sources version: "
-  SRC="$IPTSRC/Makefile"
-  test -s "$SRC" || error "Please build iptables first."
-  VER=`sed -n 's/^\(IPTABLES_\)\?VERSION[ :]= \?//p' "$SRC"`
-  test "$VER" || error "Unknown version of iptables."
-  if [ "$VER" = "$IPTVER" ]; then
-    echo "$VER (ok)"
-  else
-    echo "$VER"
-    error "Source version ($VER) doesn't match binary ($IPTVER)"
-  fi
-}
-
 get_lib_dir() {
   test -s "$1" && LIB=`sed -n 's/.*_LIB_DIR "\(.*\)"/\1/p' "$1"`
   if [ "$LIB" ]; then
@@ -76,11 +62,6 @@ try_dir() {
   return 1
 }
 
-try_dirg() {
-  try_dir "$1" && return 0
-  try_dir "$1.git" && return 0
-}
-
 iptables_ver() {
   echo -n "Iptables binary version: "
   if [ "$IPTVER" ]; then
@@ -99,13 +80,8 @@ iptables_dir() {
     try_dir $IPTSRC || error "Specified directory is not iptables source.."
   else
     echo "Searching for $VER sources.."
-    try_dir "./$VER" && return 0
-    try_dir "../$VER" && return 0
-    try_dir "../../$VER" && return 0
     try_dir "/usr/src/$VER" && return 0
-    try_dirg "iptables" && return 0
-    try_dirg "../iptables" && return 0
-    try_dirg "/usr/src/iptables" && return 0
+    try_dir "/usr" && return 0
     error "Can not find iptables source directory, try setting it with --ipt-src="
   fi
 }
@@ -133,7 +109,6 @@ do
     --ipt-ver=*) IPTVER="$ac_optarg" ;;
     --help) show_help ;;
     -*) echo Invalid option: $ac_option; exit 1 ;;
-#    *) ni="$ni $ac_option" ;;
   esac
 done
 
@@ -144,24 +119,13 @@ test "$IPTBIN" || IPTBIN=`which iptables`
 
 iptables_ver
 iptables_dir
-iptables_src_version
 iptables_modules
-
-IPTMAJ=`echo $IPTVER | cut -d. -f2`
-IPTMIN=`echo $IPTVER | cut -d. -f3`
-
-if [ $IPTMAJ == 4 -a $IPTMIN -gt 2 ] ; then
-    XT_NEWSTYLE="-DNEWSTYLE"
-else
-    XT_NEWSTYLE=""
-fi
 
 REPLACE="s!@KVERSION@!$KVERSION!;\
 s!@IPTSRC@!$IPTSRC!;\
 s!@IPTABLES_VERSION@!$IPTVER!;\
 s!@IPTABLES_MODULES@!$IPTLIB!;\
-s!@IPTABLES_PREFIX@!$IPTPREF!;\
-s!@XT_NEWSTYLE@!$XT_NEWSTYLE!;
+s!@IPTABLES_PREFIX@!$IPTPREF!;
 "
 
 echo -n "Creating Makefile.. "

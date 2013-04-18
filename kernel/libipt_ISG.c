@@ -34,14 +34,6 @@ static void help(void) {
 #define INIT_BY_SRC  0x02
 #define INIT_BY_DST  0x04
 
-#if defined NEWSTYLE
-    #define _EXIT_ERROR  xtables_error
-    #define _SAVE_STRING xtables_save_string
-#else
-    #define _EXIT_ERROR  exit_error
-    #define _SAVE_STRING save_string
-#endif
-
 static int parse(int c, char **argv, int invert, unsigned int *flags,
 		 const void *entry,
 		 struct xt_entry_target **target) {
@@ -51,7 +43,7 @@ static int parse(int c, char **argv, int invert, unsigned int *flags,
     switch (c) {
     case '1':
         if (*flags & INIT_SESSION) {
-            _EXIT_ERROR(PARAMETER_PROBLEM, "Can't specify --session-init twice\n");
+            xtables_error(PARAMETER_PROBLEM, "Can't specify --session-init twice\n");
         }
 
 	*flags |= INIT_SESSION;
@@ -62,7 +54,7 @@ static int parse(int c, char **argv, int invert, unsigned int *flags,
 
     case '2':
         if (!(*flags & INIT_SESSION)) {
-            _EXIT_ERROR(PARAMETER_PROBLEM, "--init-mode parameter must be used with --session-init option\n");
+            xtables_error(PARAMETER_PROBLEM, "--init-mode parameter must be used with --session-init option\n");
         }
 
 	if (!strcmp(optarg, "src")) {
@@ -71,7 +63,7 @@ static int parse(int c, char **argv, int invert, unsigned int *flags,
 	    isg->flags &= ~INIT_BY_SRC;
 	    isg->flags |= INIT_BY_DST;
 	} else {
-	    _EXIT_ERROR(PARAMETER_PROBLEM, "Unknown session init mode '%s'\n", optarg);
+	    xtables_error(PARAMETER_PROBLEM, "Unknown session init mode '%s'\n", optarg);
 	}
 
         break;
