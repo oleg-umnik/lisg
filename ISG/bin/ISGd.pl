@@ -252,7 +252,7 @@ sub job_isg {
 				    if ($val =~ /^(A|N)(.+)/) {
 					$srv_list{$2} = $1;
 				    } elsif ($val =~ /^QC;(.+?);/) {
-					my $ev; my %rep;
+					my $ev;
 
 					my $srv_name = "DYN_" . uc(substr(Digest::MD5::md5_hex($val), 0, 16));
 					my $class = $1;
@@ -269,7 +269,7 @@ sub job_isg {
 					$ev->{'service_name'} = $srv_name;
 					$ev->{'service_flags'} = ISG::SERVICE_DESC_IS_DYNAMIC;
 
-					if (isg_send_event($sk, $ev, \%rep) < 0) {
+					if (isg_send_event($sk, $ev) < 0) {
 					    do_log("err", "Unable to add dynamic service description ($!)");
 					}
 
