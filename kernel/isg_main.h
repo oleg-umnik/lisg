@@ -9,11 +9,8 @@
 #include <linux/jhash.h>
 #include <linux/random.h>
 #include <linux/vmalloc.h>
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
-#endif
 
 #define ISG_NETLINK_MAIN	MAX_LINKS - 1
 #define PORT_BITMAP_SIZE	65536
@@ -73,10 +70,6 @@
 
 #define IS_SESSION_APPROVED(is)			\
 		    (is->info.flags & ISG_IS_APPROVED)
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
-#define ns_to_timespec(ts, nsec) (ts).tv_sec = div_long_long_rem(nsec, NSEC_PER_SEC, &(ts).tv_nsec)
-#endif
 
 struct ipt_ISG_info {
     u_int8_t flags;
