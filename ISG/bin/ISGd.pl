@@ -203,8 +203,6 @@ sub job_isg {
 				do_log("info", "Service '" . $ev->{'service_name'} . "' for '$ipaddr' finished");
 			    }
 			}
-		    } else {
-			do_log("err", "Unknown event from NETLINK socket (0x" . unpack("H*", pack("C", $ev->{'type'})) . ")");
 		    }
 		} else {
 		    my $src_host = $rsk->peerhost();
