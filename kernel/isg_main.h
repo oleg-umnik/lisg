@@ -12,6 +12,8 @@
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
 
+#include "kcompat.h"
+
 #define ISG_NETLINK_MAIN	MAX_LINKS - 1
 #define PORT_BITMAP_SIZE	65536
 #define INITIAL_MAX_DURATION	60

@@ -61,7 +61,6 @@ int nehash_add_to_queue(struct isg_net *isg_net, u_int32_t pfx, u_int32_t mask, 
 static int nehash_insert(struct isg_net *isg_net, u_int32_t pfx, u_int32_t mask, struct traffic_class *tc) {
     u_int32_t key, first, last, idx;
     struct nehash_entry *ne, *cne = NULL, *last_ne = NULL;
-    struct hlist_node *n;
 
     key  = ntohl(pfx);
     mask = ntohl(mask);
@@ -90,7 +89,7 @@ static int nehash_insert(struct isg_net *isg_net, u_int32_t pfx, u_int32_t mask,
 	if (hlist_empty(&isg_net->nehash[idx])) {
 	    hlist_add_head(&ne->list, &isg_net->nehash[idx]);
 	} else {
-	    hlist_for_each_entry(cne, n, &isg_net->nehash[idx], list) {
+	    hlist_for_each_entry(cne, &isg_net->nehash[idx], list) {
 		if (ne->mask > cne->mask) {
 		    break;
 		}
@@ -109,21 +108,20 @@ static int nehash_insert(struct isg_net *isg_net, u_int32_t pfx, u_int32_t mask,
 
 inline struct nehash_entry *nehash_lookup(struct isg_net *isg_net, u_int32_t ipaddr) {
     struct nehash_entry *ne;
-    struct hlist_node *n;
 
     u_int32_t key, idx;
 
     key = ntohl(ipaddr);
     idx = key >> (32 - nehash_key_len);
 
-    hlist_for_each_entry(ne, n, &isg_net->nehash[idx], list) {
+    hlist_for_each_entry(ne, &isg_net->nehash[idx], list) {
 	if ((key & ne->mask) == ne->pfx) {
 	    return ne;
 	}
     }
 
     /* Trying to use "default" */
-    hlist_for_each_entry(ne, n, &isg_net->nehash[0], list) {
+    hlist_for_each_entry(ne, &isg_net->nehash[0], list) {
 	if (ne->pfx == 0 && ne->mask == 0) {
 	    return ne;
 	}
@@ -134,9 +132,8 @@ inline struct nehash_entry *nehash_lookup(struct isg_net *isg_net, u_int32_t ipa
 
 struct traffic_class *nehash_find_class(struct isg_net *isg_net, u_int8_t *class_name) {
     struct traffic_class *tc;
-    struct hlist_node *n;
 
-    hlist_for_each_entry(tc, n, &isg_net->traffic_class, list) {
+    hlist_for_each_entry(tc, &isg_net->traffic_class, list) {
 	if (!strcmp(tc->name, class_name)) {
 	    return tc;
 	}
@@ -146,13 +143,12 @@ struct traffic_class *nehash_find_class(struct isg_net *isg_net, u_int8_t *class
 
 int nehash_commit_queue(struct isg_net *isg_net) {
     struct nehash_entry *ne;
-    struct hlist_node *n;
 
     spin_lock_bh(&isg_lock);
 
     nehash_sweep_entries(isg_net);
 
-    hlist_for_each_entry(ne, n, &isg_net->nehash_queue, list) {
+    hlist_for_each_entry(ne, &isg_net->nehash_queue, list) {
 	nehash_insert(isg_net, ne->pfx, ne->mask, ne->tc);
     }
 
@@ -165,9 +161,9 @@ int nehash_commit_queue(struct isg_net *isg_net) {
 
 void nehash_sweep_queue(struct isg_net *isg_net) {
     struct nehash_entry *ne;
-    struct hlist_node *n, *t;
+    struct hlist_node *n;
 
-    hlist_for_each_entry_safe(ne, n, t, &isg_net->nehash_queue, list) {
+    hlist_for_each_entry_safe(ne, n, &isg_net->nehash_queue, list) {
 	hlist_del(&ne->list);
 	kfree(ne);
     }
@@ -175,9 +171,9 @@ void nehash_sweep_queue(struct isg_net *isg_net) {
 
 static void nehash_sweep_tc(struct isg_net *isg_net) {
     struct traffic_class *tc;
-    struct hlist_node *n, *t;
+    struct hlist_node *n;
 
-    hlist_for_each_entry_safe(tc, n, t, &isg_net->traffic_class, list) {
+    hlist_for_each_entry_safe(tc, n, &isg_net->traffic_class, list) {
 	hlist_del(&tc->list);
 	kfree(tc);
     }
@@ -187,10 +183,10 @@ void nehash_sweep_entries(struct isg_net *isg_net) {
     int i;
 
     struct nehash_entry *ne;
-    struct hlist_node *n, *t;
+    struct hlist_node *n;
 
     for (i = 0; i < (1 << nehash_key_len); i++) {
-	hlist_for_each_entry_safe(ne, n, t, &isg_net->nehash[i], list) {
+	hlist_for_each_entry_safe(ne, n, &isg_net->nehash[i], list) {
 	    hlist_del(&ne->list);
 	    kfree(ne);
 	}
