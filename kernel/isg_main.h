@@ -203,8 +203,6 @@ struct isg_net {
 	pid_t listener_pid;
 
 	unsigned long *port_bitmap;
-	unsigned int current_sess_cnt;
-	unsigned int unapproved_sess_cnt;
 
 	struct ctl_table_header *sysctl_hdr;
 

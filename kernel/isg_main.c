@@ -502,9 +502,6 @@ static struct isg_session *isg_create_session(struct isg_net *isg_net, u_int32_t
 
 	isg_send_event(isg_net, EVENT_SESS_CREATE, is, 0, NLMSG_DONE, 0);
 
-	isg_net->current_sess_cnt++;
-	isg_net->unapproved_sess_cnt++;
-
 	return is;
 }
 
@@ -589,7 +586,6 @@ static int isg_update_session(struct isg_net *isg_net, struct isg_in_event *ev) 
 			memcpy(is->info.cookie, ev->si.sinfo.cookie, 32);
 			is->info.flags |= ISG_IS_APPROVED;
 			isg_start_session(is);
-			isg_net->unapproved_sess_cnt--;
 		}
 
 		spin_unlock_bh(&isg_lock);
@@ -615,10 +611,6 @@ static int isg_free_session(struct isg_session *is) {
 		if (is->info.port_number) {
 			clear_bit(is->info.port_number, is->isg_net->port_bitmap);
 		}
-
-		if (!is->info.flags) {
-			is->isg_net->unapproved_sess_cnt--;
-		}
 	}
 
 	if (!hlist_empty(&is->srv_head)) { /* Freeing sub-sessions also */
@@ -641,7 +633,6 @@ static int isg_free_session(struct isg_session *is) {
 	if (!IS_SERVICE(is)) {
 		hlist_del(&is->list);
 		_isg_free_session(is);
-		is->isg_net->current_sess_cnt--;
 	} else {
 		is->info.flags &= ~ISG_SERVICE_ONLINE;
 		get_random_bytes(&(is->info.id), sizeof(is->info.id));
@@ -726,12 +717,6 @@ static void isg_send_sessions_list(struct isg_net *isg_net, pid_t pid, struct is
 
 	spin_lock_bh(&isg_lock);
 
-	if (isg_net->current_sess_cnt == 0) {
-		isg_send_event(isg_net, EVENT_SESS_INFO, NULL, pid, NLMSG_DONE, 0);
-		spin_unlock_bh(&isg_lock);
-		return;
-	}
-
 	if (ev->si.sinfo.port_number || ev->si.sinfo.id) {
 		is = isg_find_session(isg_net, ev);
 		isg_send_event(isg_net, EVENT_SESS_INFO, is, pid, NLMSG_DONE, 0);
@@ -748,23 +733,34 @@ static void isg_send_sessions_list(struct isg_net *isg_net, pid_t pid, struct is
 }
 
 static void isg_send_session_count(struct isg_net *isg_net, pid_t pid) {
-	struct isg_session *is = NULL;
+	struct isg_session *is, *nis;
+	unsigned int current_sess_cnt = 0, unapproved_sess_cnt = 0;
+	unsigned int i;
 
 	spin_lock_bh(&isg_lock);
 
-	is = kzalloc(sizeof(struct isg_session), GFP_ATOMIC);
-	if (!is) {
+	for (i = 0; i < nr_buckets; i++) {
+		hlist_for_each_entry(is, &isg_net->hash[i], list) {
+			current_sess_cnt++;
+			if (!is->info.flags) {
+			    unapproved_sess_cnt++;
+			}
+		}
+	}
+
+	nis = kzalloc(sizeof(struct isg_session), GFP_ATOMIC);
+	if (!nis) {
 		printk(KERN_ERR "ipt_ISG: session allocation failed\n");
 		spin_unlock_bh(&isg_lock);
 		return;
 	}
 
-	is->info.ipaddr = isg_net->current_sess_cnt;
-	is->info.nat_ipaddr = isg_net->unapproved_sess_cnt;
+	nis->info.ipaddr = current_sess_cnt;
+	nis->info.nat_ipaddr = unapproved_sess_cnt;
 
-	isg_send_event(isg_net, EVENT_SESS_COUNT, is, pid, NLMSG_DONE, 0);
+	isg_send_event(isg_net, EVENT_SESS_COUNT, nis, pid, NLMSG_DONE, 0);
 
-	kfree(is);
+	kfree(nis);
 
 	spin_unlock_bh(&isg_lock);
 }
