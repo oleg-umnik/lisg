@@ -275,7 +275,7 @@ static void isg_send_event(struct isg_net *isg_net, u_int16_t type, struct isg_s
 
 		if (is->parent_is) {
 			ev->parent_session_id = is->parent_is->info.id;
-			memcpy(ev->sinfo.cookie, is->parent_is->info.cookie, 32);
+			memcpy(ev->sinfo.cookie, is->parent_is->info.cookie, 64);
 		}
 
 		if (is->sdesc) {
@@ -583,7 +583,7 @@ static int isg_update_session(struct isg_net *isg_net, struct isg_in_event *ev) 
 		if (ev->type == EVENT_SERV_APPLY) {
 			is->info.flags |= ISG_IS_SERVICE;
 		} else if (ev->type == EVENT_SESS_APPROVE) {
-			memcpy(is->info.cookie, ev->si.sinfo.cookie, 32);
+			memcpy(is->info.cookie, ev->si.sinfo.cookie, 64);
 			is->info.flags |= ISG_IS_APPROVED;
 			isg_start_session(is);
 		}

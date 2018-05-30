@@ -296,7 +296,7 @@ sub job_isg {
 					$oev->{'alive_interval'} = defined($alive_interval) ? $alive_interval : $cfg{session_alive_interval};
 					$oev->{'idle_timeout'} = defined($idle_timeout) ? $idle_timeout : $cfg{session_idle_timeout};
 
-					$oev->{'cookie'} = substr($class, 0, 32) if (defined($class));
+					$oev->{'cookie'} = substr($class, 0, 64) if (defined($class));
 
 					if ($rp->code eq "Access-Reject" && defined($cfg{unauth_session_max_duration})) {
 						$oev->{'max_duration'} = $cfg{unauth_session_max_duration};

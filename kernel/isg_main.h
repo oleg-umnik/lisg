@@ -83,7 +83,7 @@ struct ipt_ISG_mt_info {
 
 struct isg_session_info {
 	u_int64_t id;
-	u_int8_t cookie[32];
+	u_int8_t cookie[64];
 
 	u_int32_t ipaddr;			/* User's IP-address */
 	u_int32_t nat_ipaddr;		/* User's 1-to-1 NAT IP-address */
