@@ -194,7 +194,7 @@ sub job_isg {
 					} elsif ($ev->{'type'} == ISG::EVENT_SESS_STOP) {
 
 						if ($ev->{'flags'} & ISG::IS_APPROVED_SESSION) {
-							make_new_child($cfg{cb_on_session_stop}, { "ipaddr" => $ipaddr, "nat_ipaddr" => $nat_ipaddr }) if defined($cfg{cb_on_session_stop});
+							$cfg{cb_on_session_stop}->({ "ipaddr" => $ipaddr, "nat_ipaddr" => $nat_ipaddr }) if defined($cfg{cb_on_session_stop});
 							do_log("info", "Session '$ipaddr' on 'Virtual" . $ev->{'port_number'} . "' finished");
 						} elsif ($ev->{'flags'} & ISG::IS_SERVICE) {
 							do_log("info", "Service '" . $ev->{'service_name'} . "' for '$ipaddr' finished");
@@ -338,7 +338,7 @@ sub job_isg {
 						do_log("err", "Error sending EVENT_SESS_APPROVE: $!");
 					}
 
-					make_new_child($cfg{cb_on_session_start}, { "ipaddr" => $exp_login, "nat_ipaddr" => $nat_ipaddr }) if defined($cfg{cb_on_session_start});
+					$cfg{cb_on_session_start}->({ "ipaddr" => $exp_login, "nat_ipaddr" => $nat_ipaddr }) if defined($cfg{cb_on_session_start});
 					do_log("info", "Session '$exp_login' on 'Virtual" . $exp_ev->{'port_number'} ."' accepted by '$src_host:$src_port'");
 
 				} elsif ($rp->code eq "Access-Reject") {
